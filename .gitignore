@@ -29,11 +29,19 @@ pip-wheel-metadata/
 # Local environment and secrets
 .env
 .env.*
+*.env
 !.env.example
-scripts/deploy.env
 
 # Editor and OS files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+terraform.tfvars.example

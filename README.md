@@ -84,6 +84,40 @@ The script provisions:
 - App settings
 - ZIP deployment package
 
+## Terraform Deploy
+
+If you only want the Azure resource deployment and platform configuration, use the Terraform configuration in [infra/terraform](infra/terraform/README.md).
+
+That Terraform path provisions:
+
+- Resource group
+- Linux App Service plan
+- Linux web app with system-assigned managed identity
+- Azure SQL logical server and serverless database
+- SQL firewall rule allowing Azure services
+- Microsoft Entra app registration for Easy Auth
+- App Service Authentication configuration
+- Required app settings
+
+It intentionally does not deploy the application package, and it still requires the same post-provision SQL grants for the web app managed identity.
+
+## App-Only Deploy
+
+If the infrastructure already exists and you only want to push a new Flask app package, use [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh).
+
+It reuses `scripts/deploy.env` if present, but only requires:
+
+- `RG`
+- `WEBAPP_NAME`
+
+By default it uses your current Azure CLI login session. Set `AZURE_CONFIG_DIR` only if you need to point at a non-default Azure CLI profile.
+
+Example:
+
+```bash
+./scripts/deploy_app_only.sh
+```
+
 ## Required Post-Provision SQL Step
 
 The script intentionally stops short of creating the contained database user automatically, because that step must run while authenticated to Azure SQL as the configured Microsoft Entra admin.
