@@ -10,6 +10,7 @@ The application must:
 - Use the web app's system-assigned managed identity to connect to Azure SQL Database without a SQL username/password in application settings.
 - Record a login event for each authenticated user.
 - Show recorded login events on a dashboard after sign-in.
+- Expose a protected JSON API endpoint that returns recent login events.
 - Use the current Azure SQL Database free offer for the sample database so the baseline deployment stays in the no-cost tier when the subscription is eligible and monthly limits are not exceeded.
 
 This document is the implementation contract. An agent should be able to build the app and the infrastructure from this file alone.
@@ -23,6 +24,7 @@ This document is the implementation contract. An agent should be able to build t
 - Easy Auth configured on the App Service app with Microsoft Entra ID.
 - A simple schema for login audit records.
 - A dashboard page that displays the recorded login data.
+- A JSON API endpoint that returns recent login audit rows.
 - Azure CLI commands to provision and configure the required Azure resources.
 
 ### Out of scope
@@ -190,7 +192,35 @@ The table must include:
 - Email or preferred username.
 - Microsoft Entra object ID.
 
-### FR-4: Database bootstrap
+### FR-4: Login events API
+
+The app must expose a protected JSON endpoint for recent login events.
+
+Implementation rules:
+
+- Route: `GET /api/logins`
+- Authentication is required.
+- The endpoint returns HTTP 200 with `application/json`.
+- The response body must be an object with a `login_events` array.
+- Each item in `login_events` must include:
+  - `login_at`
+  - `display_name`
+  - `email`
+  - `aad_object_id`
+  - `identity_provider`
+- Rows must be ordered from newest to oldest.
+- The endpoint should return the same most recent 50 rows shown on the dashboard.
+- The endpoint must not insert a new login audit row by itself.
+
+If the request is unauthenticated, the endpoint must return HTTP 401 with a JSON body:
+
+```json
+{
+  "error": "authentication_required"
+}
+```
+
+### FR-5: Database bootstrap
 
 The application should initialize the required table if it does not exist yet.
 
@@ -199,7 +229,7 @@ Implementation rule:
 - Schema creation may happen during app startup or through a dedicated helper function called before querying.
 - Table creation must be idempotent.
 
-### FR-5: Operational simplicity
+### FR-6: Operational simplicity
 
 The implementation should prefer the smallest number of files and moving parts that still keep the app understandable.
 
@@ -214,6 +244,11 @@ The implementation should use these routes unless there is a strong reason to ch
   - Records the login event for the current browser session if not already recorded.
   - Loads recent login rows from Azure SQL.
   - Renders the main HTML page.
+- `GET /api/logins`
+  - Requires authentication.
+  - Loads recent login rows from Azure SQL.
+  - Returns the rows as JSON.
+  - Does not insert a login audit row.
 - `GET /healthz`
   - Returns `200 OK` and a simple body like `ok`.
   - May remain anonymous to support health checks.
@@ -394,6 +429,7 @@ Minimum behavior:
 
 - Log the error on the server.
 - Return HTTP 500 with a simple user-facing message for browser requests.
+- Return HTTP 401 or HTTP 500 with a JSON error body for JSON API endpoints.
 - Do not expose secrets or raw token contents in logs.
 
 ## 14. File Structure Expectation
@@ -443,7 +479,8 @@ The implementation should proceed in this order:
 4. Implement idempotent schema creation.
 5. Implement login audit insert logic.
 6. Implement dashboard query and rendering.
-7. Add health endpoint.
+7. Add login events JSON endpoint.
+8. Add health endpoint.
 
 ### Phase 4: Deploy and validate
 
@@ -700,9 +737,11 @@ The implementation is complete only when all of the following are true:
 - Visiting the site while anonymous causes a Microsoft sign-in flow.
 - After sign-in, the user reaches the dashboard successfully.
 - The dashboard shows the signed-in user's identity details.
+- Authenticated `GET /api/logins` returns recent login rows as JSON.
 - The app creates `dbo.user_logins` automatically if it does not exist.
 - The app inserts a login row for a newly authenticated browser session.
 - The dashboard shows recent login rows ordered from newest to oldest.
+- The JSON API returns the same recent rows ordered from newest to oldest.
 - No SQL username/password is stored in the app configuration.
 - The app uses the App Service system-assigned managed identity for Azure SQL access.
 - The Azure SQL Database is provisioned with the free-offer configuration instead of the legacy `Basic` service objective.
@@ -730,6 +769,8 @@ These choices are intentional for the sample implementation:
 
 - Anonymous request to `/dashboard` redirects to sign-in.
 - Authenticated request to `/dashboard` returns HTTP 200.
+- Anonymous request to `/api/logins` returns HTTP 401 JSON.
+- Authenticated request to `/api/logins` returns HTTP 200 JSON.
 - First authenticated request in a new browser session inserts one login row.
 - Refreshing `/dashboard` in the same session does not insert another row.
 - Recent rows query returns newest first.

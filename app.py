@@ -53,6 +53,7 @@ def create_app(test_config=None):
         SQL_DATABASE_NAME=os.environ.get("SQL_DATABASE_NAME", "").strip(),
         TRUST_EASY_AUTH_HEADERS=_is_running_on_app_service(),
         DASHBOARD_SERVICE=load_dashboard_data,
+        LOGIN_EVENTS_SERVICE=load_login_events,
     )
 
     if test_config:
@@ -100,6 +101,16 @@ def create_app(test_config=None):
     @app.get("/healthz")
     def healthz():
         return Response("ok", mimetype="text/plain")
+
+    @app.get("/api/logins")
+    def api_logins():
+        try:
+            rows = current_app.config["LOGIN_EVENTS_SERVICE"](g.current_user)
+        except Exception:
+            current_app.logger.exception("Failed to load login events API.")
+            return _json_error_response("login_events_unavailable", 500)
+
+        return _json_response({"login_events": rows})
 
     return app
 
@@ -202,6 +213,14 @@ def load_dashboard_data(user, should_record_login):
         if should_record_login:
             insert_login_event(connection, user)
 
+        rows = fetch_recent_logins(connection)
+        connection.commit()
+        return rows
+
+
+def load_login_events(_user):
+    with closing(open_sql_connection()) as connection:
+        ensure_schema(connection)
         rows = fetch_recent_logins(connection)
         connection.commit()
         return rows
@@ -360,11 +379,7 @@ def _get_sql_access_token():
 
 def _unauthenticated_response():
     if _prefers_json():
-        return Response(
-            json.dumps({"error": "authentication_required"}),
-            mimetype="application/json",
-            status=401,
-        )
+        return _json_error_response("authentication_required", 401)
 
     return redirect("/.auth/login/aad")
 
@@ -384,6 +399,14 @@ def _server_error_response():
         mimetype="text/plain",
         status=500,
     )
+
+
+def _json_response(payload, status=200):
+    return Response(json.dumps(payload), mimetype="application/json", status=status)
+
+
+def _json_error_response(error, status):
+    return _json_response({"error": error}, status=status)
 
 
 app = create_app()

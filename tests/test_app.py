@@ -39,6 +39,7 @@ class FakeDashboardService:
                 "display_name": "Alice Smith",
                 "email": "alice@example.com",
                 "aad_object_id": "00000000-0000-0000-0000-000000000000",
+                "identity_provider": "aad",
             }
         ]
 
@@ -49,6 +50,24 @@ class FakeDashboardService:
                 "should_record_login": should_record_login,
             }
         )
+        return list(self.rows)
+
+
+class FakeLoginEventsService:
+    def __init__(self):
+        self.calls = []
+        self.rows = [
+            {
+                "login_at": "2026-04-12 10:00:00 UTC",
+                "display_name": "Alice Smith",
+                "email": "alice@example.com",
+                "aad_object_id": "00000000-0000-0000-0000-000000000000",
+                "identity_provider": "aad",
+            }
+        ]
+
+    def __call__(self, user):
+        self.calls.append({"user": user})
         return list(self.rows)
 
 
@@ -103,13 +122,15 @@ class FetchRecentLoginsTests(unittest.TestCase):
 
 class AppRouteTests(unittest.TestCase):
     def setUp(self):
-        self.service = FakeDashboardService()
+        self.dashboard_service = FakeDashboardService()
+        self.login_events_service = FakeLoginEventsService()
         self.app = app_module.create_app(
             {
                 "TESTING": True,
                 "SECRET_KEY": "test-secret-key",
                 "TRUST_EASY_AUTH_HEADERS": True,
-                "DASHBOARD_SERVICE": self.service,
+                "DASHBOARD_SERVICE": self.dashboard_service,
+                "LOGIN_EVENTS_SERVICE": self.login_events_service,
             }
         )
         self.client = self.app.test_client()
@@ -143,9 +164,9 @@ class AppRouteTests(unittest.TestCase):
 
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(len(self.service.calls), 2)
-        self.assertTrue(self.service.calls[0]["should_record_login"])
-        self.assertFalse(self.service.calls[1]["should_record_login"])
+        self.assertEqual(len(self.dashboard_service.calls), 2)
+        self.assertTrue(self.dashboard_service.calls[0]["should_record_login"])
+        self.assertFalse(self.dashboard_service.calls[1]["should_record_login"])
 
     def test_dashboard_renders_current_user_summary(self):
         response = self.client.get("/dashboard", headers=principal_headers())
@@ -155,6 +176,33 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("Alice Smith", page)
         self.assertIn("alice@example.com", page)
         self.assertIn("00000000-0000-0000-0000-000000000000", page)
+
+    def test_api_logins_returns_json_events_for_authenticated_user(self):
+        response = self.client.get("/api/logins", headers=principal_headers())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {
+                "login_events": [
+                    {
+                        "login_at": "2026-04-12 10:00:00 UTC",
+                        "display_name": "Alice Smith",
+                        "email": "alice@example.com",
+                        "aad_object_id": "00000000-0000-0000-0000-000000000000",
+                        "identity_provider": "aad",
+                    }
+                ]
+            },
+        )
+        self.assertEqual(len(self.login_events_service.calls), 1)
+        self.assertEqual(len(self.dashboard_service.calls), 0)
+
+    def test_api_logins_returns_json_401_when_anonymous(self):
+        response = self.client.get("/api/logins")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json()["error"], "authentication_required")
 
 
 class PrincipalParsingTests(unittest.TestCase):
