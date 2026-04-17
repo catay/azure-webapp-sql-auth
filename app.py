@@ -19,6 +19,7 @@ MAX_RECENT_LOGINS = 50
 SQL_CONNECT_TIMEOUT_SECONDS = 30
 SQL_CONNECT_RETRIES = 2
 SQL_CONNECT_RETRY_DELAY_SECONDS = 10
+LOGIN_EVENTS_APP_ROLE = "read_login_events"
 SCHEMA_SQL = """
 IF NOT EXISTS (
     SELECT 1
@@ -29,8 +30,11 @@ BEGIN
     CREATE TABLE dbo.user_logins (
         id INT IDENTITY(1,1) PRIMARY KEY,
         aad_object_id NVARCHAR(64) NOT NULL,
+        principal_type NVARCHAR(32) NOT NULL
+            CONSTRAINT DF_user_logins_principal_type DEFAULT 'user',
         display_name NVARCHAR(256) NOT NULL,
         email NVARCHAR(256) NULL,
+        client_app_id NVARCHAR(64) NULL,
         identity_provider NVARCHAR(64) NOT NULL,
         login_at DATETIMEOFFSET NOT NULL
             CONSTRAINT DF_user_logins_login_at DEFAULT SYSDATETIMEOFFSET()
@@ -41,6 +45,19 @@ BEGIN
 
     CREATE INDEX IX_user_logins_aad_object_id
         ON dbo.user_logins (aad_object_id);
+END
+
+IF COL_LENGTH('dbo.user_logins', 'principal_type') IS NULL
+BEGIN
+    ALTER TABLE dbo.user_logins
+    ADD principal_type NVARCHAR(32) NOT NULL
+        CONSTRAINT DF_user_logins_principal_type_upgrade DEFAULT 'user' WITH VALUES;
+END
+
+IF COL_LENGTH('dbo.user_logins', 'client_app_id') IS NULL
+BEGIN
+    ALTER TABLE dbo.user_logins
+    ADD client_app_id NVARCHAR(64) NULL;
 END
 """
 
@@ -54,6 +71,8 @@ def create_app(test_config=None):
         TRUST_EASY_AUTH_HEADERS=_is_running_on_app_service(),
         DASHBOARD_SERVICE=load_dashboard_data,
         LOGIN_EVENTS_SERVICE=load_login_events,
+        LOGIN_EVENTS_APP_ROLE=os.environ.get("LOGIN_EVENTS_API_APP_ROLE", LOGIN_EVENTS_APP_ROLE).strip()
+        or LOGIN_EVENTS_APP_ROLE,
     )
 
     if test_config:
@@ -66,11 +85,11 @@ def create_app(test_config=None):
         if request.endpoint in {"healthz", "index", "static"}:
             return None
 
-        user = get_authenticated_user()
-        if user is None:
+        principal = get_authenticated_principal()
+        if principal is None:
             return _unauthenticated_response()
 
-        g.current_user = user
+        g.current_principal = principal
         return None
 
     @app.get("/")
@@ -79,7 +98,11 @@ def create_app(test_config=None):
 
     @app.get("/dashboard")
     def dashboard():
-        user = g.current_user
+        principal = g.current_principal
+        if principal["principal_type"] != "user":
+            return _forbidden_response("user_principal_required")
+
+        user = principal
         should_record_login = not session.get(USER_SESSION_FLAG, False)
 
         try:
@@ -104,8 +127,12 @@ def create_app(test_config=None):
 
     @app.get("/api/logins")
     def api_logins():
+        authorization_error = _authorize_login_events_api(g.current_principal)
+        if authorization_error is not None:
+            return authorization_error
+
         try:
-            rows = current_app.config["LOGIN_EVENTS_SERVICE"](g.current_user)
+            rows = current_app.config["LOGIN_EVENTS_SERVICE"](g.current_principal)
         except Exception:
             current_app.logger.exception("Failed to load login events API.")
             return _json_error_response("login_events_unavailable", 500)
@@ -139,7 +166,7 @@ def _is_running_on_app_service():
     )
 
 
-def get_authenticated_user():
+def get_authenticated_principal():
     if not current_app.config.get("TRUST_EASY_AUTH_HEADERS", False):
         current_app.logger.warning("Easy Auth headers are not trusted outside Azure App Service.")
         return None
@@ -164,34 +191,87 @@ def parse_client_principal(principal_header, headers=None):
     for claim in principal.get("claims", []):
         claim_type = claim.get("typ")
         claim_value = claim.get("val")
-        if claim_type and claim_value is not None and claim_type not in claims:
-            claims[claim_type] = claim_value
+        if claim_type and claim_value is not None:
+            claims.setdefault(claim_type, []).append(claim_value)
 
-    object_id = _first_non_empty(
-        claims.get("http://schemas.microsoft.com/identity/claims/objectidentifier"),
-        claims.get("oid"),
+    object_id = _first_claim(
+        claims,
+        "http://schemas.microsoft.com/identity/claims/objectidentifier",
+        "oid",
     )
-    display_name = _first_non_empty(claims.get("name"))
-    email = _first_non_empty(
-        claims.get("preferred_username"),
-        claims.get("email"),
-        claims.get("upn"),
+    display_name = _first_non_empty(
+        _first_claim(claims, "name"),
+        headers.get("X-MS-CLIENT-PRINCIPAL-NAME"),
     )
+    email = _first_claim(
+        claims,
+        "preferred_username",
+        "email",
+        "upn",
+    )
+    client_app_id = _first_claim(claims, "azp", "appid", "client_id")
+    subject = _first_claim(claims, "sub")
+    role_claim_type = principal.get("role_typ") or "roles"
+    roles = _all_claims(claims, role_claim_type, "roles")
     identity_provider = _first_non_empty(
         principal.get("auth_typ"),
         headers.get("X-MS-CLIENT-PRINCIPAL-IDP"),
         "aad",
     )
 
-    if not object_id or not display_name:
+    principal_type = "application" if _is_application_principal(claims, client_app_id, object_id, subject) else "user"
+
+    if not object_id:
         raise ValueError("Authenticated principal is missing required claims.")
 
+    if principal_type == "user" and not display_name:
+        raise ValueError("Authenticated user principal is missing a display name.")
+
+    if principal_type == "application" and not client_app_id:
+        raise ValueError("Authenticated application principal is missing a client application ID.")
+
     return {
+        "principal_type": principal_type,
         "aad_object_id": object_id,
-        "display_name": display_name,
+        "display_name": display_name or client_app_id,
         "email": email,
+        "client_app_id": client_app_id,
         "identity_provider": identity_provider,
+        "roles": roles,
     }
+
+
+def _is_application_principal(claims, client_app_id, object_id, subject):
+    id_type = _first_claim(claims, "idtyp")
+    if id_type == "app":
+        return True
+
+    has_user_identity = any(
+        _first_claim(claims, claim_type)
+        for claim_type in ("name", "preferred_username", "email", "upn")
+    )
+    if client_app_id and not has_user_identity:
+        return True
+
+    return bool(client_app_id and object_id and subject and object_id == subject)
+
+
+def _first_claim(claims, *claim_types):
+    for claim_type in claim_types:
+        values = claims.get(claim_type, [])
+        for value in values:
+            if value:
+                return value
+    return None
+
+
+def _all_claims(claims, *claim_types):
+    values = []
+    for claim_type in claim_types:
+        for value in claims.get(claim_type, []):
+            if value and value not in values:
+                values.append(value)
+    return values
 
 
 def _first_non_empty(*values):
@@ -221,9 +301,29 @@ def load_dashboard_data(user, should_record_login):
 def load_login_events(_user):
     with closing(open_sql_connection()) as connection:
         ensure_schema(connection)
+
+        if _user["principal_type"] == "application":
+            insert_login_event(connection, _user)
+
         rows = fetch_recent_logins(connection)
         connection.commit()
         return rows
+
+
+def _authorize_login_events_api(principal):
+    if principal["principal_type"] == "user":
+        return None
+
+    required_role = current_app.config["LOGIN_EVENTS_APP_ROLE"]
+    if required_role in principal["roles"]:
+        return None
+
+    current_app.logger.warning(
+        "Application principal %s is missing required role %s for /api/logins.",
+        principal.get("client_app_id"),
+        required_role,
+    )
+    return _json_error_response("insufficient_role", 403)
 
 
 def ensure_schema(connection):
@@ -242,15 +342,19 @@ def insert_login_event(connection, user):
                 """
                 INSERT INTO dbo.user_logins (
                     aad_object_id,
+                    principal_type,
                     display_name,
                     email,
+                    client_app_id,
                     identity_provider
                 )
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 user["aad_object_id"],
+                user["principal_type"],
                 user["display_name"],
                 user["email"],
+                user["client_app_id"],
                 user["identity_provider"],
             )
     except Exception:
@@ -265,8 +369,10 @@ def fetch_recent_logins(connection):
                 f"""
                 SELECT TOP {MAX_RECENT_LOGINS}
                     aad_object_id,
+                    principal_type,
                     display_name,
                     email,
+                    client_app_id,
                     identity_provider,
                     CONVERT(
                         VARCHAR(19),
@@ -281,8 +387,10 @@ def fetch_recent_logins(connection):
             return [
                 {
                     "aad_object_id": row.aad_object_id,
+                    "principal_type": row.principal_type,
                     "display_name": row.display_name,
                     "email": row.email,
+                    "client_app_id": row.client_app_id,
                     "identity_provider": row.identity_provider,
                     "login_at": row.login_at_utc,
                 }
@@ -399,6 +507,13 @@ def _server_error_response():
         mimetype="text/plain",
         status=500,
     )
+
+
+def _forbidden_response(error):
+    if _prefers_json():
+        return _json_error_response(error, 403)
+
+    return Response("Forbidden", mimetype="text/plain", status=403)
 
 
 def _json_response(payload, status=200):

@@ -9,8 +9,9 @@ The application must:
 - Require users to authenticate before accessing the app.
 - Use the web app's system-assigned managed identity to connect to Azure SQL Database without a SQL username/password in application settings.
 - Record a login event for each authenticated user.
-- Show recorded login events on a dashboard after sign-in.
+- Show recorded user and application login events on a dashboard after sign-in.
 - Expose a protected JSON API endpoint that returns recent login events.
+- Allow a Microsoft Entra daemon client application to call the login events API by using OAuth 2.0 client credentials.
 - Use the current Azure SQL Database free offer for the sample database so the baseline deployment stays in the no-cost tier when the subscription is eligible and monthly limits are not exceeded.
 
 This document is the implementation contract. An agent should be able to build the app and the infrastructure from this file alone.
@@ -25,6 +26,7 @@ This document is the implementation contract. An agent should be able to build t
 - A simple schema for login audit records.
 - A dashboard page that displays the recorded login data.
 - A JSON API endpoint that returns recent login audit rows.
+- A daemon client application registration that can be granted application permission to the login events API.
 - Azure CLI commands to provision and configure the required Azure resources.
 
 ### Out of scope
@@ -59,9 +61,23 @@ The authentication model is:
 4. After successful sign-in, Easy Auth injects authenticated user information into request headers.
 5. Flask reads the injected headers and treats the request as authenticated.
 6. Flask writes a login record into Azure SQL.
-7. Flask renders the dashboard with recent login events.
+7. Flask renders the dashboard with recent user and application login events.
 
 The application must not implement its own OpenID Connect flow in Flask. Authentication is handled by App Service Authentication.
+
+### Daemon client flow
+
+The machine-to-machine access model is:
+
+1. A daemon application is registered in Microsoft Entra ID as a confidential client.
+2. The App Service app registration exposes an API Application ID URI and an application permission for reading login events.
+3. The daemon application receives admin consent for that application permission.
+4. The daemon application requests an access token by using the OAuth 2.0 client credentials grant.
+5. The daemon sends `Authorization: Bearer <token>` to `GET /api/logins`.
+6. App Service Authentication validates the token and injects principal headers for Flask.
+7. Flask authorizes the application principal by checking the required app role before returning the JSON payload.
+
+This flow is app-only. It must not depend on an interactive user session.
 
 ### Database access flow
 
@@ -87,6 +103,14 @@ These decisions are fixed to reduce ambiguity for the implementing agent.
 - Azure identity library: `azure-identity`.
 - Optional packaging: `requirements.txt`.
 - App entrypoint: `app.py`.
+- Microsoft Entra daemon flow: OAuth 2.0 client credentials.
+
+### Fixed daemon authorization values
+
+These values are part of the implementation contract:
+
+- App role value required for daemon access to `GET /api/logins`: `read_login_events`
+- Default Application ID URI for the App Service API: `api://<easy-auth-client-id>`
 
 ### App Service hosting assumptions
 
@@ -156,6 +180,35 @@ Use this claim precedence:
 
 If the decoded principal payload is missing, the request should be treated as unauthenticated and return HTTP 401 for JSON endpoints or redirect to `/.auth/login/aad` for browser routes.
 
+### Application identity source inside Flask
+
+The daemon client calls are also delivered through Easy Auth headers. The Flask app must support application principals in addition to user principals.
+
+Preferred claim handling for application principals:
+
+- Client application ID:
+  - `azp`
+  - fallback `appid`
+  - fallback `client_id`
+- Application object ID:
+  - `http://schemas.microsoft.com/identity/claims/objectidentifier`
+  - fallback `oid`
+- App roles:
+  - `roles`
+- App-only hint:
+  - `idtyp=app` when present
+  - otherwise treat the token as app-only when `oid == sub` and a client application ID exists
+
+Implementation rule:
+
+- The app must distinguish between:
+  - interactive user principals
+  - application principals
+- `GET /dashboard` must allow only interactive user principals.
+- `GET /api/logins` must allow:
+  - interactive user principals
+  - application principals that contain the `read_login_events` app role
+
 ## 5. Functional Requirements
 
 ### FR-1: Protected application
@@ -178,18 +231,25 @@ Implementation rule:
 
 This rule is intentionally simple and sufficient for the sample app.
 
+Additional rule for daemon access:
+
+- When an authorized application principal successfully calls `GET /api/logins`, the app must record an application login event.
+- This application event should be recorded per successful API call.
+
 ### FR-3: Dashboard
 
 The dashboard must show:
 
 - The current signed-in user summary.
-- A table of recent login events.
+- A table of recent user and application login events.
 
 The table must include:
 
 - Login timestamp in UTC.
+- Principal type.
 - Display name.
 - Email or preferred username.
+- Client application ID when the row represents an application principal.
 - Microsoft Entra object ID.
 
 ### FR-4: Login events API
@@ -204,19 +264,34 @@ Implementation rules:
 - The response body must be an object with a `login_events` array.
 - Each item in `login_events` must include:
   - `login_at`
+  - `principal_type`
   - `display_name`
   - `email`
+  - `client_app_id`
   - `aad_object_id`
   - `identity_provider`
 - Rows must be ordered from newest to oldest.
 - The endpoint should return the same most recent 50 rows shown on the dashboard.
-- The endpoint must not insert a new login audit row by itself.
+- The endpoint must insert an audit row when the caller is an authorized application principal.
+- The endpoint should not insert an additional audit row when the caller is a user principal that is only reading the API.
+- The endpoint must allow:
+  - authenticated user principals
+  - authenticated application principals with the `read_login_events` app role
+- The endpoint must reject authenticated application principals that do not have the required app role.
 
 If the request is unauthenticated, the endpoint must return HTTP 401 with a JSON body:
 
 ```json
 {
   "error": "authentication_required"
+}
+```
+
+If the request is authenticated but the application principal is missing the required app role, the endpoint must return HTTP 403 with a JSON body:
+
+```json
+{
+  "error": "insufficient_role"
 }
 ```
 
@@ -241,14 +316,18 @@ The implementation should use these routes unless there is a strong reason to ch
   - Redirects to `/dashboard`.
 - `GET /dashboard`
   - Requires authentication.
+  - Allows only authenticated user principals.
   - Records the login event for the current browser session if not already recorded.
-  - Loads recent login rows from Azure SQL.
+  - Loads recent user and application login rows from Azure SQL.
   - Renders the main HTML page.
 - `GET /api/logins`
   - Requires authentication.
-  - Loads recent login rows from Azure SQL.
+  - Allows authenticated user principals.
+  - Allows authenticated application principals that contain the `read_login_events` app role.
+  - Records an application login row when called by an authorized application principal.
+  - Loads recent user and application login rows from Azure SQL.
   - Returns the rows as JSON.
-  - Does not insert a login audit row.
+  - Does not insert an additional audit row for user principals that are only reading the API.
 - `GET /healthz`
   - Returns `200 OK` and a simple body like `ok`.
   - May remain anonymous to support health checks.
@@ -269,8 +348,10 @@ Required columns:
 
 - `id INT IDENTITY(1,1) PRIMARY KEY`
 - `aad_object_id NVARCHAR(64) NOT NULL`
+- `principal_type NVARCHAR(32) NOT NULL`
 - `display_name NVARCHAR(256) NOT NULL`
 - `email NVARCHAR(256) NULL`
+- `client_app_id NVARCHAR(64) NULL`
 - `identity_provider NVARCHAR(64) NOT NULL`
 - `login_at DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET()`
 
@@ -292,8 +373,11 @@ BEGIN
     CREATE TABLE dbo.user_logins (
         id INT IDENTITY(1,1) PRIMARY KEY,
         aad_object_id NVARCHAR(64) NOT NULL,
+        principal_type NVARCHAR(32) NOT NULL
+            CONSTRAINT DF_user_logins_principal_type DEFAULT 'user',
         display_name NVARCHAR(256) NOT NULL,
         email NVARCHAR(256) NULL,
+        client_app_id NVARCHAR(64) NULL,
         identity_provider NVARCHAR(64) NOT NULL,
         login_at DATETIMEOFFSET NOT NULL
             CONSTRAINT DF_user_logins_login_at DEFAULT SYSDATETIMEOFFSET()
@@ -304,6 +388,19 @@ BEGIN
 
     CREATE INDEX IX_user_logins_aad_object_id
         ON dbo.user_logins (aad_object_id);
+END
+
+IF COL_LENGTH('dbo.user_logins', 'principal_type') IS NULL
+BEGIN
+    ALTER TABLE dbo.user_logins
+    ADD principal_type NVARCHAR(32) NOT NULL
+        CONSTRAINT DF_user_logins_principal_type_upgrade DEFAULT 'user' WITH VALUES;
+END
+
+IF COL_LENGTH('dbo.user_logins', 'client_app_id') IS NULL
+BEGIN
+    ALTER TABLE dbo.user_logins
+    ADD client_app_id NVARCHAR(64) NULL;
 END
 ```
 
@@ -372,10 +469,22 @@ The effective connection settings must include:
 - App Service Authentication must be enabled.
 - Unauthenticated requests must be redirected to sign-in.
 - The site must use the Microsoft provider as the default sign-in provider.
+- The App Service app registration must expose an Application ID URI that daemon clients can request with `/.default`.
+- The App Service Authentication configuration must accept the Application ID URI as an allowed audience.
 
 ### Important implementation note
 
 Flask should trust Easy Auth only when the app is running behind App Service Authentication. The code should not assume the same headers are trustworthy in arbitrary hosting environments.
+
+### Authorization note for the mixed website + API design
+
+Because the sample hosts both browser pages and the API in the same App Service site, authorization must be enforced in Flask for the daemon-specific app role check on `GET /api/logins`.
+
+Important reasoning:
+
+- App Service built-in allowed-client authorization checks are site-wide.
+- This sample still needs interactive browser access to `/dashboard`.
+- Therefore, the daemon authorization rule must be enforced in route-specific application code even if platform-level allowlists are also configured later for a dedicated API deployment.
 
 ## 11. Azure SQL Security Requirements
 
@@ -404,7 +513,7 @@ Required UI elements:
 
 - Page title.
 - Current user summary card.
-- Table of recent logins.
+- Table of recent user and application logins.
 - Empty state when no rows exist.
 - Sign-out link pointing to `/.auth/logout`.
 
@@ -430,6 +539,7 @@ Minimum behavior:
 - Log the error on the server.
 - Return HTTP 500 with a simple user-facing message for browser requests.
 - Return HTTP 401 or HTTP 500 with a JSON error body for JSON API endpoints.
+- Return HTTP 403 with a JSON error body when an authenticated application principal lacks the required app role.
 - Do not expose secrets or raw token contents in logs.
 
 ## 14. File Structure Expectation
@@ -480,7 +590,8 @@ The implementation should proceed in this order:
 5. Implement login audit insert logic.
 6. Implement dashboard query and rendering.
 7. Add login events JSON endpoint.
-8. Add health endpoint.
+8. Add daemon-application principal parsing and app-role authorization for `GET /api/logins`.
+9. Add health endpoint.
 
 ### Phase 4: Deploy and validate
 
@@ -524,6 +635,9 @@ SQL_AAD_ADMIN_OBJECT_ID="595d861c-6322-4ca1-a607-4e502649c6aa"
 # Easy Auth app registration values.
 AAD_APP_NAME="app-${WEBAPP_NAME}"
 AAD_APP_REDIRECT_URI="https://${WEBAPP_NAME}.azurewebsites.net/.auth/login/aad/callback"
+AAD_APP_IDENTIFIER_URI="api://<easy-auth-client-id>"
+LOGIN_EVENTS_APP_ROLE="read_login_events"
+DAEMON_APP_NAME="${WEBAPP_NAME}-daemon"
 ```
 
 Notes:
@@ -653,6 +767,104 @@ AAD_APP_CLIENT_SECRET="$(az ad app credential reset \
   --query password -o tsv)"
 ```
 
+### 16.10a Expose the App Service API and define the daemon app role
+
+Set the Application ID URI:
+
+```bash
+AAD_APP_IDENTIFIER_URI="api://${AAD_APP_CLIENT_ID}"
+
+az ad app update \
+  --id "$AAD_APP_CLIENT_ID" \
+  --identifier-uris "$AAD_APP_IDENTIFIER_URI"
+```
+
+Create an application role in the app manifest for daemon access:
+
+```bash
+LOGIN_EVENTS_APP_ROLE_ID="$(python - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+)"
+```
+
+Retrieve the current app manifest, append the role, and update the app registration:
+
+```bash
+az ad app show \
+  --id "$AAD_APP_CLIENT_ID" \
+  --query appRoles -o json
+```
+
+The resulting app registration must contain an app role equivalent to:
+
+```json
+{
+  "allowedMemberTypes": ["Application"],
+  "description": "Allows daemon apps to read login events from the Flask API.",
+  "displayName": "Read Login Events",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "isEnabled": true,
+  "origin": "Application",
+  "value": "read_login_events"
+}
+```
+
+Implementation note:
+
+- The exact CLI mechanics for patching `appRoles` can vary over time.
+- Terraform should be preferred for repeatable role creation.
+- If the portal is available, defining the app role there is acceptable.
+
+### 16.10b Create the daemon client application
+
+```bash
+DAEMON_APP_CLIENT_ID="$(az ad app create \
+  --display-name "$DAEMON_APP_NAME" \
+  --query appId -o tsv)"
+```
+
+Create a client secret for the daemon:
+
+```bash
+DAEMON_APP_CLIENT_SECRET="$(az ad app credential reset \
+  --id "$DAEMON_APP_CLIENT_ID" \
+  --append \
+  --query password -o tsv)"
+```
+
+Resolve the daemon service principal object ID:
+
+```bash
+DAEMON_APP_OBJECT_ID="$(az ad sp show \
+  --id "$DAEMON_APP_CLIENT_ID" \
+  --query id -o tsv)"
+```
+
+### 16.10c Grant the daemon application permission and admin consent
+
+Add the application permission:
+
+```bash
+az ad app permission add \
+  --id "$DAEMON_APP_CLIENT_ID" \
+  --api "$AAD_APP_CLIENT_ID" \
+  --api-permissions "<login-events-app-role-id>=Role"
+```
+ 
+Grant admin consent:
+
+```bash
+az ad app permission admin-consent \
+  --id "$DAEMON_APP_CLIENT_ID"
+```
+
+Implementation note:
+
+- The placeholder `<login-events-app-role-id>` is the GUID of the `read_login_events` app role on the App Service app registration.
+- Terraform should provision this grant directly for the repeatable path.
+
 ### 16.11 Configure web app app settings
 
 ```bash
@@ -660,6 +872,7 @@ az webapp config appsettings set \
   --resource-group "$RG" \
   --name "$WEBAPP_NAME" \
   --settings \
+    LOGIN_EVENTS_API_APP_ROLE="$LOGIN_EVENTS_APP_ROLE" \
     SQL_SERVER_NAME="${SQL_SERVER_NAME}.database.windows.net" \
     SQL_DATABASE_NAME="$SQL_DB_NAME" \
     FLASK_SECRET_KEY="<generate-a-random-secret>" \
@@ -688,6 +901,16 @@ az webapp auth microsoft update \
   --client-secret "$AAD_APP_CLIENT_SECRET" \
   --tenant-id "$TENANT_ID" \
   --issuer "https://sts.windows.net/${TENANT_ID}/"
+```
+
+Add the API audience so daemon access tokens requested for the Application ID URI are accepted:
+
+```bash
+az resource update \
+  --resource-group "$RG" \
+  --resource-type "Microsoft.Web/sites/config" \
+  --name "${WEBAPP_NAME}/authsettingsV2" \
+  --set properties.identityProviders.azureActiveDirectory.validation.allowedAudiences='["'"$AAD_APP_CLIENT_ID"'","'"$AAD_APP_IDENTIFIER_URI"'"]'
 ```
 
 ### 16.13 Deploy application code
@@ -730,6 +953,58 @@ az webapp browse \
   --name "$WEBAPP_NAME"
 ```
 
+### 16.16 Request a daemon access token and call the API
+
+Request a token:
+
+```bash
+ACCESS_TOKEN="$(curl -sS -X POST \
+  "https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "client_id=${DAEMON_APP_CLIENT_ID}" \
+  --data-urlencode "client_secret=${DAEMON_APP_CLIENT_SECRET}" \
+  --data-urlencode "scope=${AAD_APP_IDENTIFIER_URI}/.default" \
+  --data-urlencode "grant_type=client_credentials" | jq -r '.access_token')"
+```
+
+Call the API:
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  "https://${WEBAPP_NAME}.azurewebsites.net/api/logins"
+```
+
+### 16.17 Portal steps for the same daemon setup
+
+Equivalent Microsoft Entra and App Service portal steps:
+
+1. Open the App Service app registration in Microsoft Entra admin center.
+2. Go to `Expose an API`.
+3. Set the Application ID URI to `api://<easy-auth-client-id>` unless a different approved URI is required.
+4. Add an app role:
+   - Display name: `Read Login Events`
+   - Allowed member types: `Applications`
+   - Value: `read_login_events`
+   - Description: a description that states the role allows daemon access to the login events API
+5. Create a new app registration for the daemon client.
+6. Create a client secret or upload a certificate for the daemon client.
+7. On the daemon app registration, go to `API permissions`.
+8. Add a permission:
+   - `My APIs`
+   - select the App Service app registration
+   - choose `Application permissions`
+   - select `read_login_events`
+9. Grant admin consent for the tenant.
+10. Open the App Service Authentication blade in Azure portal.
+11. Edit the Microsoft identity provider settings if needed and make sure the App Service app registration is the same one that exposes the API.
+12. Add the Application ID URI to the allowed token audiences if it is not already accepted.
+
+Portal recommendation:
+
+- For production daemon clients, prefer a certificate credential over a client secret.
+- For this sample, a client secret is acceptable because the focus is implementation simplicity.
+
 ## 17. Acceptance Criteria
 
 The implementation is complete only when all of the following are true:
@@ -738,10 +1013,14 @@ The implementation is complete only when all of the following are true:
 - After sign-in, the user reaches the dashboard successfully.
 - The dashboard shows the signed-in user's identity details.
 - Authenticated `GET /api/logins` returns recent login rows as JSON.
+- Authenticated `GET /api/logins` with a daemon application token that contains `read_login_events` returns recent login rows as JSON.
+- Authenticated `GET /dashboard` with an application token is rejected.
 - The app creates `dbo.user_logins` automatically if it does not exist.
 - The app inserts a login row for a newly authenticated browser session.
+- The app inserts an application login row when an authorized daemon calls `GET /api/logins`.
 - The dashboard shows recent login rows ordered from newest to oldest.
 - The JSON API returns the same recent rows ordered from newest to oldest.
+- A daemon client can acquire a client-credentials access token for the App Service API Application ID URI.
 - No SQL username/password is stored in the app configuration.
 - The app uses the App Service system-assigned managed identity for Azure SQL access.
 - The Azure SQL Database is provisioned with the free-offer configuration instead of the legacy `Basic` service objective.
@@ -769,8 +1048,11 @@ These choices are intentional for the sample implementation:
 
 - Anonymous request to `/dashboard` redirects to sign-in.
 - Authenticated request to `/dashboard` returns HTTP 200.
+- Application-principal request to `/dashboard` returns HTTP 403.
 - Anonymous request to `/api/logins` returns HTTP 401 JSON.
 - Authenticated request to `/api/logins` returns HTTP 200 JSON.
+- Application-principal request to `/api/logins` without `read_login_events` returns HTTP 403 JSON.
+- Application-principal request to `/api/logins` with `read_login_events` returns HTTP 200 JSON.
 - First authenticated request in a new browser session inserts one login row.
 - Refreshing `/dashboard` in the same session does not insert another row.
 - Recent rows query returns newest first.

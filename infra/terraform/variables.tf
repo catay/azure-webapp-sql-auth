@@ -139,6 +139,38 @@ variable "aad_app_redirect_uri" {
   nullable    = true
 }
 
+variable "aad_app_identifier_uri" {
+  description = "Optional override for the App Service API Application ID URI. Defaults to api://<easy-auth-client-id>."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "login_events_api_app_role" {
+  description = "Application role value required for daemon access to GET /api/logins."
+  type        = string
+  default     = "read_login_events"
+}
+
+variable "create_daemon_client" {
+  description = "Whether Terraform should create a daemon client app registration and grant it application permission to the web app API."
+  type        = bool
+  default     = true
+}
+
+variable "daemon_client_name" {
+  description = "Optional override for the daemon client application display name."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "daemon_client_secret_end_date_relative" {
+  description = "Relative lifetime for the generated daemon client secret."
+  type        = string
+  default     = "2160h"
+}
+
 variable "flask_secret_key" {
   description = "Optional Flask secret key. If null, Terraform generates one."
   type        = string

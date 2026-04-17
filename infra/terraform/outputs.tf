@@ -33,6 +33,32 @@ output "easy_auth_client_id" {
   value       = azuread_application.easy_auth.client_id
 }
 
+output "easy_auth_application_id_uri" {
+  description = "Application ID URI exposed by the App Service app registration."
+  value       = azuread_application_identifier_uri.easy_auth.identifier_uri
+}
+
+output "login_events_api_app_role" {
+  description = "Application role required for daemon access to GET /api/logins."
+  value       = var.login_events_api_app_role
+}
+
+output "daemon_client_id" {
+  description = "Client ID of the generated daemon application registration, if enabled."
+  value       = var.create_daemon_client ? azuread_application.daemon_client[0].client_id : null
+}
+
+output "daemon_client_object_id" {
+  description = "Object ID of the daemon service principal, if enabled."
+  value       = var.create_daemon_client ? azuread_service_principal.daemon_client[0].object_id : null
+}
+
+output "daemon_client_secret" {
+  description = "Client secret for the generated daemon application registration, if enabled."
+  value       = var.create_daemon_client ? azuread_application_password.daemon_client[0].value : null
+  sensitive   = true
+}
+
 output "post_provision_sql" {
   description = "Run this SQL against the target database as the configured Microsoft Entra admin."
   value       = <<-EOT
@@ -41,4 +67,13 @@ output "post_provision_sql" {
     ALTER ROLE db_datawriter ADD MEMBER [${azurerm_linux_web_app.main.name}];
     ALTER ROLE db_ddladmin ADD MEMBER [${azurerm_linux_web_app.main.name}];
   EOT
+}
+
+output "daemon_token_request_example" {
+  description = "Example client-credentials token request inputs for the generated daemon app."
+  value = var.create_daemon_client ? {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    token_url = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/oauth2/v2.0/token"
+    scope     = "${azuread_application_identifier_uri.easy_auth.identifier_uri}/.default"
+  } : null
 }

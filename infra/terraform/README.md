@@ -9,6 +9,8 @@ It covers:
 - Linux web app with system-assigned managed identity
 - App settings required by the Flask app
 - App Service Authentication / Easy Auth with a Microsoft Entra app registration
+- Application ID URI and app role exposure for the App Service API
+- Optional daemon client app registration with application permission to `GET /api/logins`
 - Azure SQL logical server with Microsoft Entra-only authentication
 - Azure SQL serverless database
 - SQL firewall rule allowing Azure services
@@ -39,6 +41,14 @@ cp terraform.tfvars.example terraform.tfvars
 - `sql_aad_admin_name`
 - `sql_aad_admin_object_id`
 
+Optional daemon-related inputs:
+
+- `create_daemon_client`
+- `daemon_client_name`
+- `aad_app_identifier_uri`
+- `login_events_api_app_role`
+- `daemon_client_secret_end_date_relative`
+
 3. Initialize and apply:
 
 ```bash
@@ -59,8 +69,39 @@ ALTER ROLE db_ddladmin ADD MEMBER [<webapp-name>];
 
 You can also read the exact SQL from the `post_provision_sql` Terraform output.
 
+## Daemon Outputs
+
+When `create_daemon_client = true`, Terraform also creates:
+
+- an app role on the App Service app registration for daemon access to `GET /api/logins`
+- a daemon client application registration
+- a daemon client secret
+- the application-permission grant and admin-consent equivalent app-role assignment
+
+Useful outputs:
+
+- `easy_auth_application_id_uri`
+- `login_events_api_app_role`
+- `daemon_client_id`
+- `daemon_client_secret`
+- `daemon_token_request_example`
+
+The daemon requests a token for:
+
+```text
+<easy_auth_application_id_uri>/.default
+```
+
+and calls:
+
+```text
+https://<webapp-name>.azurewebsites.net/api/logins
+```
+
 ## Notes
 
 - The generated app registration is single-tenant (`AzureADMyOrg`) to match the current sample.
 - The web app is configured for HTTPS-only and Easy Auth redirects unauthenticated users to Microsoft Entra sign-in.
+- The web app authentication settings accept both the Easy Auth client ID and the exposed Application ID URI as valid audiences.
+- Daemon authorization for `GET /api/logins` is still enforced in Flask because the sample site also hosts interactive browser routes.
 - The SQL server uses Microsoft Entra-only authentication and does not provision a SQL admin login.

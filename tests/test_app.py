@@ -1,6 +1,7 @@
 import base64
 import json
 import unittest
+from unittest import mock
 
 import app as app_module
 
@@ -30,15 +31,63 @@ def principal_headers():
     }
 
 
+def daemon_principal_headers(roles=None, appid="daemon-client-id", object_id="daemon-object-id"):
+    claims = [
+        {"typ": "appid", "val": appid},
+        {"typ": "oid", "val": object_id},
+        {"typ": "sub", "val": object_id},
+    ]
+
+    for role in roles or []:
+        claims.append({"typ": "roles", "val": role})
+
+    return {
+        "X-MS-CLIENT-PRINCIPAL": encode_principal(claims),
+        "X-MS-CLIENT-PRINCIPAL-NAME": "Login Events Daemon",
+    }
+
+
+def daemon_principal_without_matching_sub_headers(
+    roles=None,
+    appid="daemon-client-id",
+    object_id="daemon-object-id",
+    subject="different-subject",
+):
+    claims = [
+        {"typ": "appid", "val": appid},
+        {"typ": "oid", "val": object_id},
+        {"typ": "sub", "val": subject},
+    ]
+
+    for role in roles or []:
+        claims.append({"typ": "roles", "val": role})
+
+    return {
+        "X-MS-CLIENT-PRINCIPAL": encode_principal(claims),
+        "X-MS-CLIENT-PRINCIPAL-NAME": "Login Events Daemon",
+    }
+
+
 class FakeDashboardService:
     def __init__(self):
         self.calls = []
         self.rows = [
             {
                 "login_at": "2026-04-12 10:00:00 UTC",
+                "principal_type": "user",
                 "display_name": "Alice Smith",
                 "email": "alice@example.com",
+                "client_app_id": None,
                 "aad_object_id": "00000000-0000-0000-0000-000000000000",
+                "identity_provider": "aad",
+            },
+            {
+                "login_at": "2026-04-12 10:05:00 UTC",
+                "principal_type": "application",
+                "display_name": "Login Events Daemon",
+                "email": None,
+                "client_app_id": "daemon-client-id",
+                "aad_object_id": "daemon-object-id",
                 "identity_provider": "aad",
             }
         ]
@@ -59,9 +108,20 @@ class FakeLoginEventsService:
         self.rows = [
             {
                 "login_at": "2026-04-12 10:00:00 UTC",
+                "principal_type": "user",
                 "display_name": "Alice Smith",
                 "email": "alice@example.com",
+                "client_app_id": None,
                 "aad_object_id": "00000000-0000-0000-0000-000000000000",
+                "identity_provider": "aad",
+            },
+            {
+                "login_at": "2026-04-12 10:05:00 UTC",
+                "principal_type": "application",
+                "display_name": "Login Events Daemon",
+                "email": None,
+                "client_app_id": "daemon-client-id",
+                "aad_object_id": "daemon-object-id",
                 "identity_provider": "aad",
             }
         ]
@@ -89,9 +149,17 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
+        self.committed = False
+        self.closed = False
 
     def cursor(self):
         return self._cursor
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        self.closed = True
 
 
 class FetchRecentLoginsTests(unittest.TestCase):
@@ -102,8 +170,10 @@ class FetchRecentLoginsTests(unittest.TestCase):
                 (),
                 {
                     "aad_object_id": "oid-1",
+                    "principal_type": "application",
                     "display_name": "Alice Smith",
                     "email": "alice@example.com",
+                    "client_app_id": "daemon-client-id",
                     "identity_provider": "aad",
                     "login_at_utc": "2026-04-12 11:30:00 UTC",
                 },
@@ -115,9 +185,53 @@ class FetchRecentLoginsTests(unittest.TestCase):
         result = app_module.fetch_recent_logins(connection)
 
         self.assertEqual(result[0]["login_at"], "2026-04-12 11:30:00 UTC")
+        self.assertEqual(result[0]["principal_type"], "application")
+        self.assertEqual(result[0]["client_app_id"], "daemon-client-id")
         executed_sql = cursor.executed[0][0]
         self.assertIn("ORDER BY login_at DESC", executed_sql)
         self.assertIn("SELECT TOP 50", executed_sql)
+
+
+class LoadLoginEventsTests(unittest.TestCase):
+    def test_load_login_events_records_application_accesses(self):
+        rows = []
+        cursor = FakeCursor(rows)
+        connection = FakeConnection(cursor)
+        principal = {
+            "principal_type": "application",
+            "aad_object_id": "daemon-object-id",
+            "display_name": "Login Events Daemon",
+            "email": None,
+            "client_app_id": "daemon-client-id",
+            "identity_provider": "aad",
+        }
+
+        with mock.patch.object(app_module, "open_sql_connection", return_value=connection):
+            app_module.load_login_events(principal)
+
+        executed_sql = "\n".join(sql for sql, _params in cursor.executed)
+        self.assertIn("INSERT INTO dbo.user_logins", executed_sql)
+        self.assertTrue(connection.committed)
+
+    def test_load_login_events_does_not_record_user_api_reads(self):
+        rows = []
+        cursor = FakeCursor(rows)
+        connection = FakeConnection(cursor)
+        principal = {
+            "principal_type": "user",
+            "aad_object_id": "user-object-id",
+            "display_name": "Alice Smith",
+            "email": "alice@example.com",
+            "client_app_id": None,
+            "identity_provider": "aad",
+        }
+
+        with mock.patch.object(app_module, "open_sql_connection", return_value=connection):
+            app_module.load_login_events(principal)
+
+        executed_sql = "\n".join(sql for sql, _params in cursor.executed)
+        self.assertNotIn("INSERT INTO dbo.user_logins", executed_sql)
+        self.assertTrue(connection.committed)
 
 
 class AppRouteTests(unittest.TestCase):
@@ -176,6 +290,17 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("Alice Smith", page)
         self.assertIn("alice@example.com", page)
         self.assertIn("00000000-0000-0000-0000-000000000000", page)
+        self.assertIn("application", page)
+        self.assertIn("daemon-client-id", page)
+
+    def test_dashboard_rejects_application_principals(self):
+        response = self.client.get(
+            "/dashboard",
+            headers=daemon_principal_headers(roles=["read_login_events"]),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_data(as_text=True), "Forbidden")
 
     def test_api_logins_returns_json_events_for_authenticated_user(self):
         response = self.client.get("/api/logins", headers=principal_headers())
@@ -187,9 +312,20 @@ class AppRouteTests(unittest.TestCase):
                 "login_events": [
                     {
                         "login_at": "2026-04-12 10:00:00 UTC",
+                        "principal_type": "user",
                         "display_name": "Alice Smith",
                         "email": "alice@example.com",
+                        "client_app_id": None,
                         "aad_object_id": "00000000-0000-0000-0000-000000000000",
+                        "identity_provider": "aad",
+                    },
+                    {
+                        "login_at": "2026-04-12 10:05:00 UTC",
+                        "principal_type": "application",
+                        "display_name": "Login Events Daemon",
+                        "email": None,
+                        "client_app_id": "daemon-client-id",
+                        "aad_object_id": "daemon-object-id",
                         "identity_provider": "aad",
                     }
                 ]
@@ -197,6 +333,35 @@ class AppRouteTests(unittest.TestCase):
         )
         self.assertEqual(len(self.login_events_service.calls), 1)
         self.assertEqual(len(self.dashboard_service.calls), 0)
+
+    def test_api_logins_returns_json_events_for_authorized_daemon(self):
+        response = self.client.get(
+            "/api/logins",
+            headers=daemon_principal_headers(roles=["read_login_events"]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["login_events"][1]["principal_type"], "application")
+        self.assertEqual(response.get_json()["login_events"][1]["client_app_id"], "daemon-client-id")
+        self.assertEqual(len(self.login_events_service.calls), 1)
+
+    def test_api_logins_accepts_daemon_without_matching_sub_when_no_user_claims_exist(self):
+        response = self.client.get(
+            "/api/logins",
+            headers=daemon_principal_without_matching_sub_headers(roles=["read_login_events"]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.login_events_service.calls[0]["user"]["principal_type"], "application")
+
+    def test_api_logins_rejects_daemon_without_required_role(self):
+        response = self.client.get(
+            "/api/logins",
+            headers=daemon_principal_headers(roles=["other_role"]),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["error"], "insufficient_role")
 
     def test_api_logins_returns_json_401_when_anonymous(self):
         response = self.client.get("/api/logins")
@@ -221,12 +386,35 @@ class PrincipalParsingTests(unittest.TestCase):
         self.assertEqual(principal["display_name"], "Ada Lovelace")
         self.assertEqual(principal["email"], "ada@example.com")
         self.assertEqual(principal["aad_object_id"], "fallback-oid")
+        self.assertEqual(principal["principal_type"], "user")
 
     def test_parse_client_principal_requires_object_id_and_display_name(self):
         header_value = encode_principal([{"typ": "preferred_username", "val": "ada@example.com"}])
 
         with self.assertRaises(ValueError):
             app_module.parse_client_principal(header_value)
+
+    def test_parse_client_principal_supports_application_principals(self):
+        principal = app_module.parse_client_principal(
+            daemon_principal_headers(roles=["read_login_events"])["X-MS-CLIENT-PRINCIPAL"],
+            {"X-MS-CLIENT-PRINCIPAL-NAME": "Login Events Daemon"},
+        )
+
+        self.assertEqual(principal["principal_type"], "application")
+        self.assertEqual(principal["client_app_id"], "daemon-client-id")
+        self.assertEqual(principal["aad_object_id"], "daemon-object-id")
+        self.assertEqual(principal["display_name"], "Login Events Daemon")
+        self.assertEqual(principal["roles"], ["read_login_events"])
+
+    def test_parse_client_principal_treats_appid_without_user_claims_as_application(self):
+        principal = app_module.parse_client_principal(
+            daemon_principal_without_matching_sub_headers(roles=["read_login_events"])[
+                "X-MS-CLIENT-PRINCIPAL"
+            ],
+            {"X-MS-CLIENT-PRINCIPAL-NAME": "Login Events Daemon"},
+        )
+
+        self.assertEqual(principal["principal_type"], "application")
 
 
 if __name__ == "__main__":
