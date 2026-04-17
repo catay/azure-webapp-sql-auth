@@ -42,7 +42,7 @@ locals {
   daemon_client_name         = coalesce(var.daemon_client_name, "${var.webapp_name}-daemon")
   flask_secret_key           = coalesce(var.flask_secret_key, random_password.flask_secret_key.result)
   login_events_api_app_role  = var.login_events_api_app_role
-  sql_sku_name               = "GP_S_${var.sql_db_family}_${var.sql_db_capacity}"
+  sql_sku_name               = "GP_S_${var.sql_db_family}"
   app_service_always_on_skus = ["FREE", "F1", "D1"]
   app_service_always_on      = !contains(local.app_service_always_on_skus, upper(var.app_plan_sku))
 
@@ -122,6 +122,15 @@ resource "azuread_application" "daemon_client" {
   count            = var.create_daemon_client ? 1 : 0
   display_name     = local.daemon_client_name
   sign_in_audience = "AzureADMyOrg"
+
+  # when using azuread_application_api_access, required_resource_access should be ignored.
+  # https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_api_access
+
+  lifecycle {
+    ignore_changes = [
+      required_resource_access,
+    ]
+  }
 }
 
 resource "azuread_service_principal" "daemon_client" {
