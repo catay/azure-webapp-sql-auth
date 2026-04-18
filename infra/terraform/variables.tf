@@ -38,6 +38,25 @@ variable "sql_aad_admin_object_id" {
   type        = string
 }
 
+variable "create_webapp_managed_identity_db_user" {
+  description = "Whether Terraform should run a local helper to create the web app managed identity database user after provisioning."
+  type        = bool
+  default     = false
+}
+
+variable "webapp_managed_identity_db_user_name" {
+  description = "Optional override for the contained database user name created for the web app managed identity."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "webapp_managed_identity_db_user_use_object_id" {
+  description = "Whether the managed identity database user helper should use CREATE USER ... WITH OBJECT_ID to avoid Microsoft Entra display-name ambiguity."
+  type        = bool
+  default     = true
+}
+
 variable "app_plan_sku" {
   description = "App Service plan SKU."
   type        = string

@@ -69,16 +69,35 @@ terraform output -raw scripts_deploy_env > ../../scripts/deploy.env
 
 ## Post-Provision SQL Step
 
-Terraform provisions the Azure resources and platform configuration, but it does not create the contained database user for the web app managed identity. After `terraform apply`, connect to the target database as the configured Microsoft Entra admin and run:
+By default, Terraform provisions the Azure resources and platform configuration, but it does not create the contained database user for the web app managed identity. After `terraform apply`, connect to the target database as the configured Microsoft Entra admin and run:
 
 ```sql
-CREATE USER [<webapp-name>] FROM EXTERNAL PROVIDER;
+CREATE USER [<webapp-name>] FROM EXTERNAL PROVIDER WITH OBJECT_ID = '<webapp-managed-identity-object-id>';
 ALTER ROLE db_datareader ADD MEMBER [<webapp-name>];
 ALTER ROLE db_datawriter ADD MEMBER [<webapp-name>];
 ALTER ROLE db_ddladmin ADD MEMBER [<webapp-name>];
 ```
 
 You can also read the exact SQL from the `post_provision_sql` Terraform output.
+
+If you want Terraform to execute this step on the machine running `terraform apply`, set:
+
+```hcl
+create_webapp_managed_identity_db_user = true
+```
+
+This opt-in helper uses a `local-exec` provisioner that runs [`scripts/create_webapp_managed_identity_db_user.sh`](/vagrant/azure-webapp-sql-with-auth/scripts/create_webapp_managed_identity_db_user.sh). The apply host must have:
+
+- `sqlcmd` installed with support for `--authentication-method ActiveDirectoryDefault`
+- a Microsoft Entra-authenticated identity that is the configured Azure SQL admin for the server
+- network access to `<sql-server>.database.windows.net:1433`
+
+Optional inputs:
+
+- `webapp_managed_identity_db_user_name`
+- `webapp_managed_identity_db_user_use_object_id`
+
+The helper is idempotent and retries transient propagation failures, but it still runs from the local Terraform client, not from Azure. Keep the variable disabled in CI or remote runners that don't have the required SQL tooling and auth context.
 
 ## Daemon Outputs
 

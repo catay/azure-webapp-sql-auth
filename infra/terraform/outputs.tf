@@ -86,10 +86,49 @@ output "daemon_client_secret_versionless_id" {
 output "post_provision_sql" {
   description = "Run this SQL against the target database as the configured Microsoft Entra admin."
   value       = <<-EOT
-    CREATE USER [${azurerm_linux_web_app.main.name}] FROM EXTERNAL PROVIDER;
-    ALTER ROLE db_datareader ADD MEMBER [${azurerm_linux_web_app.main.name}];
-    ALTER ROLE db_datawriter ADD MEMBER [${azurerm_linux_web_app.main.name}];
-    ALTER ROLE db_ddladmin ADD MEMBER [${azurerm_linux_web_app.main.name}];
+    IF DATABASE_PRINCIPAL_ID(N'${local.managed_identity_db_user_name}') IS NULL
+    BEGIN
+      CREATE USER [${local.managed_identity_db_user_name}] FROM EXTERNAL PROVIDER${var.webapp_managed_identity_db_user_use_object_id ? " WITH OBJECT_ID = '${azurerm_linux_web_app.main.identity[0].principal_id}'" : ""};
+    END;
+    IF NOT EXISTS (
+      SELECT 1
+      FROM sys.database_role_members AS role_members
+      INNER JOIN sys.database_principals AS roles
+        ON roles.principal_id = role_members.role_principal_id
+      INNER JOIN sys.database_principals AS members
+        ON members.principal_id = role_members.member_principal_id
+      WHERE roles.name = N'db_datareader'
+        AND members.name = N'${local.managed_identity_db_user_name}'
+    )
+    BEGIN
+      ALTER ROLE db_datareader ADD MEMBER [${local.managed_identity_db_user_name}];
+    END;
+    IF NOT EXISTS (
+      SELECT 1
+      FROM sys.database_role_members AS role_members
+      INNER JOIN sys.database_principals AS roles
+        ON roles.principal_id = role_members.role_principal_id
+      INNER JOIN sys.database_principals AS members
+        ON members.principal_id = role_members.member_principal_id
+      WHERE roles.name = N'db_datawriter'
+        AND members.name = N'${local.managed_identity_db_user_name}'
+    )
+    BEGIN
+      ALTER ROLE db_datawriter ADD MEMBER [${local.managed_identity_db_user_name}];
+    END;
+    IF NOT EXISTS (
+      SELECT 1
+      FROM sys.database_role_members AS role_members
+      INNER JOIN sys.database_principals AS roles
+        ON roles.principal_id = role_members.role_principal_id
+      INNER JOIN sys.database_principals AS members
+        ON members.principal_id = role_members.member_principal_id
+      WHERE roles.name = N'db_ddladmin'
+        AND members.name = N'${local.managed_identity_db_user_name}'
+    )
+    BEGIN
+      ALTER ROLE db_ddladmin ADD MEMBER [${local.managed_identity_db_user_name}];
+    END;
   EOT
 }
 

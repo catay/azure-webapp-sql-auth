@@ -36,18 +36,19 @@ provider "azapi" {}
 data "azurerm_client_config" "current" {}
 
 locals {
-  aad_app_name               = coalesce(var.aad_app_name, "app-${var.webapp_name}")
-  aad_app_redirect_uri       = coalesce(var.aad_app_redirect_uri, "https://${var.webapp_name}.azurewebsites.net/.auth/login/aad/callback")
-  aad_app_identifier_uri     = coalesce(var.aad_app_identifier_uri, "api://${azuread_application.easy_auth.client_id}")
-  daemon_client_name         = coalesce(var.daemon_client_name, "${var.webapp_name}-daemon")
-  key_vault_name             = coalesce(var.key_vault_name, substr("kv${replace(var.webapp_name, "-", "")}${random_string.key_vault_suffix.result}", 0, 24))
-  easy_auth_secret_name      = "easy-auth-client-secret"
-  daemon_client_secret_name  = "daemon-client-secret"
-  flask_secret_key           = coalesce(var.flask_secret_key, random_password.flask_secret_key.result)
-  login_events_api_app_role  = var.login_events_api_app_role
-  sql_sku_name               = "GP_S_${var.sql_db_family}"
-  app_service_always_on_skus = ["FREE", "F1", "D1"]
-  app_service_always_on      = !contains(local.app_service_always_on_skus, upper(var.app_plan_sku))
+  aad_app_name                  = coalesce(var.aad_app_name, "app-${var.webapp_name}")
+  aad_app_redirect_uri          = coalesce(var.aad_app_redirect_uri, "https://${var.webapp_name}.azurewebsites.net/.auth/login/aad/callback")
+  aad_app_identifier_uri        = coalesce(var.aad_app_identifier_uri, "api://${azuread_application.easy_auth.client_id}")
+  daemon_client_name            = coalesce(var.daemon_client_name, "${var.webapp_name}-daemon")
+  key_vault_name                = coalesce(var.key_vault_name, substr("kv${replace(var.webapp_name, "-", "")}${random_string.key_vault_suffix.result}", 0, 24))
+  easy_auth_secret_name         = "easy-auth-client-secret"
+  daemon_client_secret_name     = "daemon-client-secret"
+  flask_secret_key              = coalesce(var.flask_secret_key, random_password.flask_secret_key.result)
+  login_events_api_app_role     = var.login_events_api_app_role
+  sql_sku_name                  = "GP_S_${var.sql_db_family}"
+  managed_identity_db_user_name = coalesce(var.webapp_managed_identity_db_user_name, azurerm_linux_web_app.main.name)
+  app_service_always_on_skus    = ["FREE", "F1", "D1"]
+  app_service_always_on         = !contains(local.app_service_always_on_skus, upper(var.app_plan_sku))
 
   default_tags = {
     managed_by  = "terraform"
@@ -353,4 +354,34 @@ resource "azurerm_mssql_firewall_rule" "allow_azure_services" {
   server_id        = azurerm_mssql_server.main.id
   start_ip_address = "0.0.0.0"
   end_ip_address   = "0.0.0.0"
+}
+
+resource "terraform_data" "webapp_managed_identity_db_user" {
+  count = var.create_webapp_managed_identity_db_user ? 1 : 0
+
+  triggers_replace = {
+    sql_server_fqdn = azurerm_mssql_server.main.fully_qualified_domain_name
+    sql_database    = azapi_resource.sql_database.name
+    principal_id    = azurerm_linux_web_app.main.identity[0].principal_id
+    db_user_name    = local.managed_identity_db_user_name
+    use_object_id   = tostring(var.webapp_managed_identity_db_user_use_object_id)
+  }
+
+  provisioner "local-exec" {
+    command = "bash ${path.module}/../../scripts/create_webapp_managed_identity_db_user.sh"
+    environment = {
+      SQL_SERVER_FQDN            = azurerm_mssql_server.main.fully_qualified_domain_name
+      SQL_DATABASE_NAME          = azapi_resource.sql_database.name
+      DB_USER_NAME               = local.managed_identity_db_user_name
+      MANAGED_IDENTITY_OBJECT_ID = azurerm_linux_web_app.main.identity[0].principal_id
+      USE_OBJECT_ID              = tostring(var.webapp_managed_identity_db_user_use_object_id)
+    }
+  }
+
+  depends_on = [
+    azurerm_linux_web_app.main,
+    azurerm_mssql_server.main,
+    azapi_resource.sql_database,
+    azurerm_mssql_firewall_rule.allow_azure_services,
+  ]
 }
