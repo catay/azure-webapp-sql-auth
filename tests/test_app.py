@@ -283,7 +283,12 @@ class AppRouteTests(unittest.TestCase):
         self.assertFalse(self.dashboard_service.calls[1]["should_record_login"])
 
     def test_dashboard_renders_current_user_summary(self):
-        response = self.client.get("/dashboard", headers=principal_headers())
+        mock_datetime = mock.Mock()
+        mock_datetime.now.return_value.strftime.return_value = "2026-04-19 09:15:00 UTC"
+
+        with mock.patch.object(app_module, "datetime", mock_datetime):
+            response = self.client.get("/dashboard", headers=principal_headers())
+
         page = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
@@ -292,6 +297,8 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("00000000-0000-0000-0000-000000000000", page)
         self.assertIn("application", page)
         self.assertIn("daemon-client-id", page)
+        self.assertIn('href="/api/logins"', page)
+        self.assertIn("Page loaded at 2026-04-19 09:15:00 UTC", page)
 
     def test_dashboard_rejects_application_principals(self):
         response = self.client.get(

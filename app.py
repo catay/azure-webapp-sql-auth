@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from time import sleep
 
-from flask import Flask, Response, current_app, g, redirect, render_template, request, session
+from flask import Flask, Response, current_app, g, redirect, render_template, request, session, url_for
 
 
 SQL_COPT_SS_ACCESS_TOKEN = 1256
@@ -119,6 +119,8 @@ def create_app(test_config=None):
             page_title="Azure SQL Login Dashboard",
             current_user=user,
             login_rows=rows,
+            api_logins_url=url_for("api_logins"),
+            page_loaded_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
         )
 
     @app.get("/healthz")

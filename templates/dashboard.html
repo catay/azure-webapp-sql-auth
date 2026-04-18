@@ -59,6 +59,22 @@
         font-size: 1rem;
       }
 
+      .hero-meta {
+        margin-top: 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.5rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .hero-meta a {
+        color: var(--accent-strong);
+        font-weight: 700;
+        text-decoration-thickness: 0.08em;
+        text-underline-offset: 0.16em;
+      }
+
       .signout {
         flex-shrink: 0;
         display: inline-flex;
@@ -191,6 +207,10 @@
             Authenticated by Azure App Service Authentication and backed by Azure SQL
             through the web app managed identity.
           </p>
+          <div class="hero-meta">
+            <span>Page loaded at {{ page_loaded_at }}</span>
+            <span><a href="{{ api_logins_url }}">View logins API</a></span>
+          </div>
         </div>
         <a class="signout" href="/.auth/logout">Sign Out</a>
       </section>
