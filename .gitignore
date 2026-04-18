@@ -30,7 +30,6 @@ pip-wheel-metadata/
 .env
 .env.*
 *.env
-!.env.example
 
 # Editor and OS files
 .DS_Store
@@ -44,4 +43,3 @@ Thumbs.db
 *.tfstate.*
 terraform.tfvars
 *.auto.tfvars
-terraform.tfvars.example

@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_PATH="${API_PATH:-/api/logins}"
 ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/deploy.env}"
 
@@ -12,7 +13,6 @@ require_cmd() {
   fi
 }
 
-#require_cmd terraform
 require_cmd jq
 require_cmd curl
 require_cmd python
@@ -24,8 +24,22 @@ if [[ -f "${ENV_FILE}" ]]; then
   set +a
 fi
 
-if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ] || [ "$CLIENT_ID" = "null" ] || [ "$CLIENT_SECRET" = "null" ]; then
+CLIENT_ID="${CLIENT_ID:-}"
+CLIENT_SECRET="${CLIENT_SECRET:-}"
+KEY_VAULT_NAME="${KEY_VAULT_NAME:-}"
+DAEMON_CLIENT_SECRET_NAME="${DAEMON_CLIENT_SECRET_NAME:-}"
+
+if [[ -z "${CLIENT_SECRET}" || "${CLIENT_SECRET}" == "null" ]] && [[ -n "${KEY_VAULT_NAME}" && -n "${DAEMON_CLIENT_SECRET_NAME}" ]]; then
+  require_cmd az
+  CLIENT_SECRET="$(az keyvault secret show \
+    --vault-name "${KEY_VAULT_NAME}" \
+    --name "${DAEMON_CLIENT_SECRET_NAME}" \
+    --query value -o tsv)"
+fi
+
+if [ -z "${CLIENT_ID}" ] || [ -z "${CLIENT_SECRET}" ] || [ "${CLIENT_ID}" = "null" ] || [ "${CLIENT_SECRET}" = "null" ]; then
   echo "Daemon client environment variables are not available." >&2
+  echo "Set CLIENT_ID and either CLIENT_SECRET or KEY_VAULT_NAME plus DAEMON_CLIENT_SECRET_NAME." >&2
   exit 1
 fi
 

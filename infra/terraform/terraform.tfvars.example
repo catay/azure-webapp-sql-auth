@@ -1,0 +1,19 @@
+rg              = "rg-flask-sql-auth"
+location        = "westeurope"
+app_plan        = "plan-flask-sql-auth"
+webapp_name     = "app-flask-sql-auth-weeu-01"
+sql_server_name = "sql-flask-sql-auth-weeu-01"
+sql_db_name     = "appdb"
+
+sql_aad_admin_name      = "<replace with display name>"
+sql_aad_admin_object_id = "<replace with object ID>"
+
+# Optional overrides:
+# key_vault_name = "kvflasksqlauthweeu01"
+# aad_app_name = "app-${webapp_name}"
+# aad_app_redirect_uri = "https://${webapp_name}.azurewebsites.net/.auth/login/aad/callback"
+# aad_app_identifier_uri = "api://<easy-auth-client-id>"
+# create_daemon_client = true
+# daemon_client_name = "${webapp_name}-daemon"
+# daemon_client_secret_end_date_relative = "2160h"
+# flask_secret_key = "<fixed secret>"

@@ -1,6 +1,6 @@
 # Terraform Deployment
 
-This Terraform configuration translates the Azure resource deployment and platform configuration from [docs/spec.md](../../docs/spec.md) and [scripts/deploy_azure.sh](../../scripts/deploy_azure.sh).
+This Terraform configuration translates the Azure resource deployment and platform configuration from [docs/spec.md](../../docs/spec.md).
 
 It covers:
 
@@ -8,6 +8,7 @@ It covers:
 - Linux App Service plan
 - Linux web app with system-assigned managed identity
 - App settings required by the Flask app
+- Azure Key Vault for generated Microsoft Entra client secrets
 - App Service Authentication / Easy Auth with a Microsoft Entra app registration
 - Application ID URI and app role exposure for the App Service API
 - Optional daemon client app registration with application permission to `GET /api/logins`
@@ -49,11 +50,21 @@ Optional daemon-related inputs:
 - `login_events_api_app_role`
 - `daemon_client_secret_end_date_relative`
 
+Optional Key Vault input:
+
+- `key_vault_name`
+
 3. Initialize and apply:
 
 ```bash
 terraform init
 terraform apply
+```
+
+4. Generate a reusable env file for `scripts/deploy_app_only.sh` and `scripts/test_daemon_api.sh`:
+
+```bash
+terraform output -raw scripts_deploy_env > ../../scripts/deploy.env
 ```
 
 ## Post-Provision SQL Step
@@ -75,16 +86,19 @@ When `create_daemon_client = true`, Terraform also creates:
 
 - an app role on the App Service app registration for daemon access to `GET /api/logins`
 - a daemon client application registration
-- a daemon client secret
+- a daemon client secret stored in Azure Key Vault
 - the application-permission grant and admin-consent equivalent app-role assignment
 
 Useful outputs:
 
+- `key_vault_name`
 - `easy_auth_application_id_uri`
+- `easy_auth_client_secret_name`
 - `login_events_api_app_role`
 - `daemon_client_id`
-- `daemon_client_secret`
+- `daemon_client_secret_name`
 - `daemon_token_request_example`
+- `scripts_deploy_env`
 
 The daemon requests a token for:
 
@@ -102,6 +116,9 @@ https://<webapp-name>.azurewebsites.net/api/logins
 
 - The generated app registration is single-tenant (`AzureADMyOrg`) to match the current sample.
 - The web app is configured for HTTPS-only and Easy Auth redirects unauthenticated users to Microsoft Entra sign-in.
+- The web app uses its system-assigned managed identity to resolve the Easy Auth client secret from Key Vault.
 - The web app authentication settings accept both the Easy Auth client ID and the exposed Application ID URI as valid audiences.
+- The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is stored as an App Service Key Vault reference rather than a raw secret value.
+- Terraform still sees generated secret values because it creates the app-registration passwords before writing them into Key Vault.
 - Daemon authorization for `GET /api/logins` is still enforced in Flask because the sample site also hosts interactive browser routes.
 - The SQL server uses Microsoft Entra-only authentication and does not provision a SQL admin login.

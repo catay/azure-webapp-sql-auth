@@ -23,6 +23,7 @@ This document is the implementation contract. An agent should be able to build t
 - One Flask web application deployed to Azure App Service.
 - One Azure SQL logical server and one Azure SQL Database.
 - Easy Auth configured on the App Service app with Microsoft Entra ID.
+- One Azure Key Vault used to store generated Microsoft Entra client secrets.
 - A simple schema for login audit records.
 - A dashboard page that displays the recorded login data.
 - A JSON API endpoint that returns recent login audit rows.
@@ -49,6 +50,7 @@ The solution uses these resources:
 - Azure App Service (Linux, Python runtime).
 - Azure SQL logical server.
 - Azure SQL Database configured for the current Azure SQL Database free offer.
+- Azure Key Vault for generated client secrets.
 - One Microsoft Entra app registration for Easy Auth.
 
 ### Authentication flow
@@ -111,6 +113,13 @@ These values are part of the implementation contract:
 
 - App role value required for daemon access to `GET /api/logins`: `read_login_events`
 - Default Application ID URI for the App Service API: `api://<easy-auth-client-id>`
+
+### Secrets management
+
+- The Easy Auth app registration client secret must be stored in Azure Key Vault.
+- The daemon client app registration secret must be stored in Azure Key Vault when the daemon client is created.
+- The App Service app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` must be configured as an App Service Key Vault reference, not as a raw secret value.
+- The web app may use its system-assigned managed identity to resolve Key Vault references.
 
 ### App Service hosting assumptions
 
@@ -568,18 +577,20 @@ The implementation should proceed in this order:
 2. Create the App Service plan.
 3. Create the web app with Python runtime.
 4. Enable the system-assigned managed identity.
-5. Create the Azure SQL logical server.
-6. Create the Azure SQL Database.
-7. Configure server firewall access as needed for setup tasks.
-8. Set a Microsoft Entra admin on the SQL server.
+5. Create the Azure Key Vault and grant secret access to the web app managed identity.
+6. Create the Azure SQL logical server.
+7. Create the Azure SQL Database.
+8. Configure server firewall access as needed for setup tasks.
+9. Set a Microsoft Entra admin on the SQL server.
 
 ### Phase 2: Configure identity and database access
 
 1. Create the Microsoft Entra app registration used by Easy Auth.
 2. Add the redirect URI for App Service authentication.
-3. Configure Easy Auth on the web app.
-4. Create a database user mapped to the App Service managed identity.
-5. Grant the database permissions required by the app.
+3. Store the Easy Auth client secret in Azure Key Vault.
+4. Configure Easy Auth on the web app using the Key Vault-backed app setting.
+5. Create a database user mapped to the App Service managed identity.
+6. Grant the database permissions required by the app.
 
 ### Phase 3: Build the Flask app
 
@@ -614,6 +625,7 @@ RG="rg-flask-sql-auth"
 LOCATION="westeurope"
 APP_PLAN="plan-flask-sql-auth"
 WEBAPP_NAME="app-flask-sql-auth-weeu-01"
+KEY_VAULT_NAME="kvflasksqlauthweeu01"
 SQL_SERVER_NAME="sql-flask-sql-auth-weeu-01"
 SQL_DB_NAME="appdb"
 SQL_DB_EDITION="GeneralPurpose"
@@ -638,6 +650,8 @@ AAD_APP_REDIRECT_URI="https://${WEBAPP_NAME}.azurewebsites.net/.auth/login/aad/c
 AAD_APP_IDENTIFIER_URI="api://<easy-auth-client-id>"
 LOGIN_EVENTS_APP_ROLE="read_login_events"
 DAEMON_APP_NAME="${WEBAPP_NAME}-daemon"
+EASY_AUTH_SECRET_NAME="easy-auth-client-secret"
+DAEMON_APP_SECRET_NAME="daemon-client-secret"
 ```
 
 Notes:
@@ -690,6 +704,24 @@ WEBAPP_MI_PRINCIPAL_ID="$(az webapp identity assign \
   --resource-group "$RG" \
   --name "$WEBAPP_NAME" \
   --query principalId -o tsv)"
+```
+
+### 16.5a Create the Azure Key Vault and allow the web app to read secrets
+
+```bash
+az keyvault create \
+  --name "$KEY_VAULT_NAME" \
+  --resource-group "$RG" \
+  --location "$LOCATION"
+```
+
+Grant secret read access to the web app managed identity:
+
+```bash
+az keyvault set-policy \
+  --name "$KEY_VAULT_NAME" \
+  --object-id "$WEBAPP_MI_PRINCIPAL_ID" \
+  --secret-permissions get list
 ```
 
 ### 16.6 Create the Azure SQL logical server
@@ -767,6 +799,15 @@ AAD_APP_CLIENT_SECRET="$(az ad app credential reset \
   --query password -o tsv)"
 ```
 
+Store the Easy Auth secret in Key Vault:
+
+```bash
+az keyvault secret set \
+  --vault-name "$KEY_VAULT_NAME" \
+  --name "$EASY_AUTH_SECRET_NAME" \
+  --value "$AAD_APP_CLIENT_SECRET"
+```
+
 ### 16.10a Expose the App Service API and define the daemon app role
 
 Set the Application ID URI:
@@ -834,6 +875,15 @@ DAEMON_APP_CLIENT_SECRET="$(az ad app credential reset \
   --query password -o tsv)"
 ```
 
+Store the daemon secret in Key Vault:
+
+```bash
+az keyvault secret set \
+  --vault-name "$KEY_VAULT_NAME" \
+  --name "$DAEMON_APP_SECRET_NAME" \
+  --value "$DAEMON_APP_CLIENT_SECRET"
+```
+
 Resolve the daemon service principal object ID:
 
 ```bash
@@ -876,6 +926,7 @@ az webapp config appsettings set \
     SQL_SERVER_NAME="${SQL_SERVER_NAME}.database.windows.net" \
     SQL_DATABASE_NAME="$SQL_DB_NAME" \
     FLASK_SECRET_KEY="<generate-a-random-secret>" \
+    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET="@Microsoft.KeyVault(VaultName=${KEY_VAULT_NAME};SecretName=${EASY_AUTH_SECRET_NAME})" \
     SCM_DO_BUILD_DURING_DEPLOYMENT=true
 ```
 
@@ -898,9 +949,10 @@ az webapp auth microsoft update \
   --resource-group "$RG" \
   --name "$WEBAPP_NAME" \
   --client-id "$AAD_APP_CLIENT_ID" \
-  --client-secret "$AAD_APP_CLIENT_SECRET" \
+  --client-secret-setting-name MICROSOFT_PROVIDER_AUTHENTICATION_SECRET \
   --tenant-id "$TENANT_ID" \
-  --issuer "https://sts.windows.net/${TENANT_ID}/"
+  --issuer "https://sts.windows.net/${TENANT_ID}/" \
+  --yes
 ```
 
 Add the API audience so daemon access tokens requested for the Application ID URI are accepted:

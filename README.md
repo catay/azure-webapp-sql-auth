@@ -8,8 +8,6 @@ This repository contains a small Flask application that relies on Azure App Serv
 - `templates/dashboard.html`: server-rendered dashboard UI.
 - `requirements.txt`: runtime dependencies.
 - `tests/test_app.py`: unit tests for auth, session deduplication, and dashboard behavior.
-- `scripts/deploy_azure.sh`: end-to-end Azure provisioning and ZIP deploy helper.
-- `scripts/deploy.env.example`: environment variable template for the deployment script.
 - `docs/spec.md`: implementation contract.
 
 ## Local Verification
@@ -22,68 +20,6 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-## Deploy
-
-1. Copy the deployment environment template and adjust the values:
-
-```bash
-cp scripts/deploy.env.example scripts/deploy.env
-```
-
-2. Review and update:
-
-- `RG`
-- `LOCATION`
-- `APP_PLAN`
-- `WEBAPP_NAME`
-- `SQL_SERVER_NAME`
-- `SQL_DB_NAME`
-- `SQL_AAD_ADMIN_NAME`
-- `SQL_AAD_ADMIN_OBJECT_ID`
-- `SQL_AAD_ADMIN_PRINCIPAL_TYPE`
-
-Use `User`, `Group`, or `Application` for `SQL_AAD_ADMIN_PRINCIPAL_TYPE`. Most setups will use `User` or `Group`.
-
-3. Run the deployment script:
-
-```bash
-./scripts/deploy_azure.sh
-```
-
-The script automatically loads `scripts/deploy.env` if that file exists. If you want to point at a different file, use:
-
-```bash
-ENV_FILE=./scripts/deploy.env ./scripts/deploy_azure.sh
-```
-
-The deployment script is restart-safe for the common partial-failure cases:
-
-- It reuses the resource group, App Service plan, web app, SQL server, SQL database, and firewall rule when they already exist.
-- It re-applies the web app managed identity, SQL Entra admin, Entra-only auth, app settings, and Easy Auth configuration on rerun.
-- It reuses an existing `FLASK_SECRET_KEY` from the web app if one is already set.
-- It reuses an existing Entra app registration when exactly one app matches `AAD_APP_NAME`.
-- It defaults `AZURE_CONFIG_DIR` to a writable `/tmp` path so Azure CLI logging and extensions work in restricted environments.
-
-If multiple Entra app registrations share the same display name, set `AAD_APP_CLIENT_ID` explicitly in `scripts/deploy.env` before rerunning.
-
-If your tenant behaves inconsistently when listing Entra applications, you can also set `AAD_APP_CLIENT_ID` and `AAD_APP_OBJECT_ID` explicitly in `scripts/deploy.env` to skip the lookup path.
-
-If `AAD_APP_CLIENT_SECRET` is not provided, the script rotates the app registration client secret on each run and updates App Service Authentication with the new value. If you want to keep a fixed secret across reruns, set `AAD_APP_CLIENT_SECRET` explicitly.
-
-The script provisions:
-
-- Resource group
-- Linux App Service plan
-- Python web app
-- System-assigned managed identity
-- Azure SQL logical server
-- Azure SQL Database using the current free-offer serverless configuration
-- SQL firewall rule allowing Azure services for setup
-- Microsoft Entra app registration for Easy Auth
-- App Service Authentication configuration
-- App settings
-- ZIP deployment package
-
 ## Terraform Deploy
 
 If you only want the Azure resource deployment and platform configuration, use the Terraform configuration in [infra/terraform](infra/terraform/README.md).
@@ -95,11 +31,21 @@ That Terraform path provisions:
 - Linux web app with system-assigned managed identity
 - Azure SQL logical server and serverless database
 - SQL firewall rule allowing Azure services
+- Azure Key Vault for generated Microsoft Entra client secrets
 - Microsoft Entra app registration for Easy Auth
+- Optional daemon client app registration
 - App Service Authentication configuration
 - Required app settings
 
 It intentionally does not deploy the application package, and it still requires the same post-provision SQL grants for the web app managed identity.
+
+The generated Easy Auth and daemon client secrets are stored in Azure Key Vault. The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is configured as an App Service Key Vault reference rather than a raw secret value.
+
+After `terraform apply`, you can generate a ready-to-copy env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh):
+
+```bash
+terraform -chdir=infra/terraform output -raw scripts_deploy_env > scripts/deploy.env
+```
 
 ## App-Only Deploy
 
@@ -120,7 +66,7 @@ Example:
 
 ## Required Post-Provision SQL Step
 
-The script intentionally stops short of creating the contained database user automatically, because that step must run while authenticated to Azure SQL as the configured Microsoft Entra admin.
+The Terraform deployment intentionally stops short of creating the contained database user automatically, because that step must run while authenticated to Azure SQL as the configured Microsoft Entra admin.
 
 Run the following against the target database:
 
@@ -132,6 +78,29 @@ ALTER ROLE db_ddladmin ADD MEMBER [<webapp-name>];
 ```
 
 Replace `<webapp-name>` with the actual App Service name, which is also the expected managed identity display name in the sample deployment path.
+
+## Daemon API Testing
+
+Generate `scripts/deploy.env` from Terraform output if needed:
+
+```bash
+terraform -chdir=infra/terraform output -raw scripts_deploy_env > scripts/deploy.env
+```
+
+For `scripts/test_daemon_api.sh`, set:
+
+- `TENANT_ID`
+- `CLIENT_ID`
+- `SCOPE`
+- `TOKEN_URL`
+- `API_URL`
+
+Then choose one secret source:
+
+- Preferred: `KEY_VAULT_NAME` and `DAEMON_CLIENT_SECRET_NAME`
+- Fallback: `CLIENT_SECRET`
+
+When Key Vault variables are provided, the script reads the daemon secret from Key Vault with the current Azure CLI login.
 
 ## Validation
 

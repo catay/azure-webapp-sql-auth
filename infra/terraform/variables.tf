@@ -165,6 +165,13 @@ variable "daemon_client_name" {
   nullable    = true
 }
 
+variable "key_vault_name" {
+  description = "Optional override for the Azure Key Vault name used to store generated app registration secrets."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "daemon_client_secret_end_date_relative" {
   description = "Relative lifetime for the generated daemon client secret."
   type        = string

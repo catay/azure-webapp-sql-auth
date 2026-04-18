@@ -18,6 +18,16 @@ output "webapp_managed_identity_principal_id" {
   value       = azurerm_linux_web_app.main.identity[0].principal_id
 }
 
+output "key_vault_name" {
+  description = "Azure Key Vault name that stores generated app registration secrets."
+  value       = azurerm_key_vault.main.name
+}
+
+output "key_vault_uri" {
+  description = "Azure Key Vault URI."
+  value       = azurerm_key_vault.main.vault_uri
+}
+
 output "sql_server_fqdn" {
   description = "Fully qualified Azure SQL server hostname."
   value       = azurerm_mssql_server.main.fully_qualified_domain_name
@@ -53,10 +63,24 @@ output "daemon_client_object_id" {
   value       = var.create_daemon_client ? azuread_service_principal.daemon_client[0].object_id : null
 }
 
-output "daemon_client_secret" {
-  description = "Client secret for the generated daemon application registration, if enabled."
-  value       = var.create_daemon_client ? azuread_application_password.daemon_client[0].value : null
-  sensitive   = true
+output "easy_auth_client_secret_name" {
+  description = "Key Vault secret name that stores the Easy Auth app registration client secret."
+  value       = azurerm_key_vault_secret.easy_auth.name
+}
+
+output "easy_auth_client_secret_versionless_id" {
+  description = "Versionless Key Vault secret ID for the Easy Auth app registration client secret."
+  value       = azurerm_key_vault_secret.easy_auth.versionless_id
+}
+
+output "daemon_client_secret_name" {
+  description = "Key Vault secret name for the generated daemon application registration secret, if enabled."
+  value       = var.create_daemon_client ? azurerm_key_vault_secret.daemon_client[0].name : null
+}
+
+output "daemon_client_secret_versionless_id" {
+  description = "Versionless Key Vault secret ID for the generated daemon application registration secret, if enabled."
+  value       = var.create_daemon_client ? azurerm_key_vault_secret.daemon_client[0].versionless_id : null
 }
 
 output "post_provision_sql" {
@@ -76,4 +100,28 @@ output "daemon_token_request_example" {
     token_url = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/oauth2/v2.0/token"
     scope     = "${azuread_application_identifier_uri.easy_auth.identifier_uri}/.default"
   } : null
+}
+
+output "scripts_deploy_env" {
+  description = "Copy this into scripts/deploy.env for deploy_app_only.sh and test_daemon_api.sh."
+  value       = <<-EOT
+    RG="${azurerm_resource_group.main.name}"
+    WEBAPP_NAME="${azurerm_linux_web_app.main.name}"
+
+    # Optional for scripts/deploy_app_only.sh
+    # PACKAGE_PATH="/tmp/${azurerm_linux_web_app.main.name}.zip"
+    # SKIP_BROWSE="false"
+
+    # Inputs for scripts/test_daemon_api.sh
+    TENANT_ID="${data.azurerm_client_config.current.tenant_id}"
+    CLIENT_ID="${try(azuread_application.daemon_client[0].client_id, "")}"
+    KEY_VAULT_NAME="${azurerm_key_vault.main.name}"
+    DAEMON_CLIENT_SECRET_NAME="${try(azurerm_key_vault_secret.daemon_client[0].name, "")}"
+    SCOPE="${azuread_application_identifier_uri.easy_auth.identifier_uri}/.default"
+    TOKEN_URL="https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/oauth2/v2.0/token"
+    API_URL="https://${azurerm_linux_web_app.main.default_hostname}/api/logins"
+
+    # Optional alternative to Key Vault lookup:
+    # CLIENT_SECRET=""
+  EOT
 }

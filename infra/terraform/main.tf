@@ -40,6 +40,9 @@ locals {
   aad_app_redirect_uri       = coalesce(var.aad_app_redirect_uri, "https://${var.webapp_name}.azurewebsites.net/.auth/login/aad/callback")
   aad_app_identifier_uri     = coalesce(var.aad_app_identifier_uri, "api://${azuread_application.easy_auth.client_id}")
   daemon_client_name         = coalesce(var.daemon_client_name, "${var.webapp_name}-daemon")
+  key_vault_name             = coalesce(var.key_vault_name, substr("kv${replace(var.webapp_name, "-", "")}${random_string.key_vault_suffix.result}", 0, 24))
+  easy_auth_secret_name      = "easy-auth-client-secret"
+  daemon_client_secret_name  = "daemon-client-secret"
   flask_secret_key           = coalesce(var.flask_secret_key, random_password.flask_secret_key.result)
   login_events_api_app_role  = var.login_events_api_app_role
   sql_sku_name               = "GP_S_${var.sql_db_family}"
@@ -57,6 +60,14 @@ locals {
 resource "random_password" "flask_secret_key" {
   length  = 64
   special = false
+}
+
+resource "random_string" "key_vault_suffix" {
+  length  = 5
+  lower   = true
+  numeric = true
+  special = false
+  upper   = false
 }
 
 resource "azurerm_resource_group" "main" {
@@ -189,7 +200,7 @@ resource "azurerm_linux_web_app" "main" {
   app_settings = {
     FLASK_SECRET_KEY                         = local.flask_secret_key
     LOGIN_EVENTS_API_APP_ROLE                = local.login_events_api_app_role
-    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = azuread_application_password.easy_auth.value
+    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = "@Microsoft.KeyVault(VaultName=${local.key_vault_name};SecretName=${local.easy_auth_secret_name})"
     SCM_DO_BUILD_DURING_DEPLOYMENT           = "true"
     SQL_DATABASE_NAME                        = var.sql_db_name
     SQL_SERVER_NAME                          = azurerm_mssql_server.main.fully_qualified_domain_name
@@ -216,6 +227,79 @@ resource "azurerm_linux_web_app" "main" {
       token_store_enabled = true
     }
   }
+}
+
+resource "azurerm_key_vault" "main" {
+  name                            = local.key_vault_name
+  location                        = azurerm_resource_group.main.location
+  resource_group_name             = azurerm_resource_group.main.name
+  tenant_id                       = data.azurerm_client_config.current.tenant_id
+  sku_name                        = "standard"
+  soft_delete_retention_days      = 7
+  purge_protection_enabled        = false
+  enabled_for_deployment          = false
+  enabled_for_disk_encryption     = false
+  enabled_for_template_deployment = false
+  tags                            = local.tags
+
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+
+    secret_permissions = [
+      "Delete",
+      "Get",
+      "List",
+      "Purge",
+      "Recover",
+      "Set",
+    ]
+  }
+
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = azurerm_linux_web_app.main.identity[0].principal_id
+
+    secret_permissions = [
+      "Get",
+      "List",
+    ]
+  }
+}
+
+resource "azurerm_key_vault_secret" "easy_auth" {
+  name         = local.easy_auth_secret_name
+  value        = azuread_application_password.easy_auth.value
+  key_vault_id = azurerm_key_vault.main.id
+  content_type = "Microsoft Entra app registration client secret"
+
+  depends_on = [
+    azurerm_key_vault.main,
+  ]
+}
+
+resource "azurerm_key_vault_secret" "daemon_client" {
+  count        = var.create_daemon_client ? 1 : 0
+  name         = local.daemon_client_secret_name
+  value        = azuread_application_password.daemon_client[0].value
+  key_vault_id = azurerm_key_vault.main.id
+  content_type = "Microsoft Entra daemon client secret"
+
+  depends_on = [
+    azurerm_key_vault.main,
+  ]
+}
+
+resource "azapi_resource_action" "refresh_key_vault_references" {
+  type        = "Microsoft.Web/sites@2022-03-01"
+  resource_id = azurerm_linux_web_app.main.id
+  action      = "config/configreferences/appsettings/refresh"
+  method      = "POST"
+
+  depends_on = [
+    azurerm_key_vault_secret.easy_auth,
+    azurerm_key_vault_secret.daemon_client,
+  ]
 }
 
 resource "azurerm_mssql_server" "main" {
