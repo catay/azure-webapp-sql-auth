@@ -42,4 +42,4 @@ Thumbs.db
 *.tfstate
 *.tfstate.*
 terraform.tfvars
-*.auto.tfvars
+*.tfvars
