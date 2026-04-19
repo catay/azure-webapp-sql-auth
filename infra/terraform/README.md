@@ -56,6 +56,9 @@ cp terraform.tfvars.example terraform.tfvars
 - `webapp_name`
 - `sql_server_name`
 - `sql_db_name`
+
+By default, the SQL Microsoft Entra admin is set to the identity running Terraform, using `data.azurerm_client_config.current.object_id` and an Azure AD lookup for the display name. Only set these if you need to override that default:
+
 - `sql_aad_admin_name`
 - `sql_aad_admin_object_id`
 
@@ -70,6 +73,11 @@ Optional daemon-related inputs:
 Optional Key Vault input:
 
 - `key_vault_name`
+
+Optional SQL admin override inputs:
+
+- `sql_aad_admin_name`
+- `sql_aad_admin_object_id`
 
 Optional SQL firewall input:
 
@@ -111,6 +119,7 @@ This opt-in helper uses a `local-exec` provisioner that runs [`scripts/create_we
 
 - `sqlcmd` installed with support for `--authentication-method ActiveDirectoryDefault`
 - a Microsoft Entra-authenticated identity that is the configured Azure SQL admin for the server
+- by default, that SQL admin is the same identity running `terraform apply`, unless you override `sql_aad_admin_name` and `sql_aad_admin_object_id`
 - network access to `<sql-server>.database.windows.net:1433`
 
 If the apply host is outside Azure, `AllowAzureServices` is not sufficient. Add the host's public egress IP to `sql_firewall_allowed_ipv4_addresses`. For the current workstation used with this repository, the detected breakout IP is `81.164.248.111`, so the input looks like:

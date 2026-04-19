@@ -7,10 +7,17 @@ resource "azurerm_mssql_server" "main" {
   public_network_access_enabled = true
   tags                          = local.tags
 
+  lifecycle {
+    precondition {
+      condition     = local.sql_aad_admin_name != null
+      error_message = "Unable to resolve the SQL Microsoft Entra admin display name from the current Terraform identity. Set sql_aad_admin_name explicitly or authenticate with an identity that the AzureAD provider can read."
+    }
+  }
+
   azuread_administrator {
     azuread_authentication_only = true
-    login_username              = var.sql_aad_admin_name
-    object_id                   = var.sql_aad_admin_object_id
+    login_username              = local.sql_aad_admin_name
+    object_id                   = local.sql_aad_admin_object_id
     tenant_id                   = data.azurerm_client_config.current.tenant_id
   }
 }

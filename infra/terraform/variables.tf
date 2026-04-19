@@ -29,13 +29,17 @@ variable "sql_db_name" {
 }
 
 variable "sql_aad_admin_name" {
-  description = "Display name of the Microsoft Entra admin for the SQL server."
+  description = "Optional override for the Microsoft Entra admin display name on the SQL server. Defaults to the current Terraform identity when omitted."
   type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "sql_aad_admin_object_id" {
-  description = "Object ID of the Microsoft Entra admin for the SQL server."
+  description = "Optional override for the Microsoft Entra admin object ID on the SQL server. Defaults to the current Terraform identity when omitted."
   type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "create_webapp_managed_identity_db_user" {
