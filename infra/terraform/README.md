@@ -135,6 +135,7 @@ https://<webapp-name>.azurewebsites.net/api/logins
 
 - The generated app registration is single-tenant (`AzureADMyOrg`) to match the current sample.
 - The web app is configured for HTTPS-only and Easy Auth redirects unauthenticated users to Microsoft Entra sign-in.
+- `/healthz` is excluded from the Easy Auth redirect so platform health checks can reach it anonymously.
 - The web app uses its system-assigned managed identity to resolve the Easy Auth client secret from Key Vault.
 - The Key Vault uses Azure RBAC authorization, not legacy access policies.
 - Terraform grants the web app managed identity the `Key Vault Secrets User` role on the vault.

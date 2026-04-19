@@ -210,6 +210,7 @@ resource "azurerm_linux_web_app" "main" {
   auth_settings_v2 {
     auth_enabled           = true
     default_provider       = "azureactivedirectory"
+    excluded_paths         = ["/healthz"]
     require_authentication = true
     require_https          = true
     unauthenticated_action = "RedirectToLoginPage"

@@ -229,7 +229,7 @@ All user-facing app routes must require authentication.
 
 - Anonymous users must not be able to access the dashboard.
 - App Service Authentication should enforce this before Flask handles the request.
-- The app may expose `/healthz` anonymously for operational checks if needed.
+- The app must expose `/healthz` anonymously for operational checks.
 
 ### FR-2: Login auditing
 
@@ -342,7 +342,7 @@ The implementation should use these routes unless there is a strong reason to ch
   - Does not insert an additional audit row for user principals that are only reading the API.
 - `GET /healthz`
   - Returns `200 OK` and a simple body like `ok`.
-  - May remain anonymous to support health checks.
+  - Must remain anonymous to support health checks.
 - `GET /.auth/me`
   - Provided by Easy Auth, not implemented by Flask.
 - `GET /.auth/login/aad`
@@ -976,7 +976,8 @@ az resource update \
   --resource-group "$RG" \
   --resource-type "Microsoft.Web/sites/config" \
   --name "${WEBAPP_NAME}/authsettingsV2" \
-  --set properties.identityProviders.azureActiveDirectory.validation.allowedAudiences='["'"$AAD_APP_CLIENT_ID"'","'"$AAD_APP_IDENTIFIER_URI"'"]'
+  --set properties.identityProviders.azureActiveDirectory.validation.allowedAudiences='["'"$AAD_APP_CLIENT_ID"'","'"$AAD_APP_IDENTIFIER_URI"'"]' \
+  --set properties.globalValidation.excludedPaths='["/healthz"]'
 ```
 
 ### 16.13 Deploy application code

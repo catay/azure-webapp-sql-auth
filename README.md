@@ -113,7 +113,7 @@ After the SQL grants are applied:
 4. Confirm the signed-in user summary is displayed.
 5. Confirm one login row is inserted for the new browser session.
 6. Refresh `/dashboard` and confirm no second row is inserted in the same browser session.
-7. Confirm `https://<webapp-name>.azurewebsites.net/healthz` returns `200 OK`.
+7. Confirm `https://<webapp-name>.azurewebsites.net/healthz` returns `200 OK` without requiring sign-in.
 
 ## Notes
 
