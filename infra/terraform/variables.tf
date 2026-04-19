@@ -44,6 +44,20 @@ variable "create_webapp_managed_identity_db_user" {
   default     = false
 }
 
+variable "sql_firewall_allowed_ipv4_addresses" {
+  description = "Additional public IPv4 addresses allowed through the Azure SQL firewall. Use this for the machine running terraform apply when local-exec database setup is enabled."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for ip in var.sql_firewall_allowed_ipv4_addresses :
+      can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", ip))
+    ])
+    error_message = "sql_firewall_allowed_ipv4_addresses must contain IPv4 addresses such as 81.164.248.111."
+  }
+}
+
 variable "webapp_managed_identity_db_user_name" {
   description = "Optional override for the contained database user name created for the web app managed identity."
   type        = string

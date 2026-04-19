@@ -18,5 +18,6 @@ sql_aad_admin_object_id = "<replace with object ID>"
 # daemon_client_secret_end_date_relative = "2160h"
 # flask_secret_key = "<fixed secret>"
 # create_webapp_managed_identity_db_user = true
+# sql_firewall_allowed_ipv4_addresses = ["<replace with your IP address>"]
 # webapp_managed_identity_db_user_name = "${webapp_name}"
 # webapp_managed_identity_db_user_use_object_id = true

@@ -51,6 +51,15 @@ resource "azurerm_mssql_firewall_rule" "allow_azure_services" {
   end_ip_address   = "0.0.0.0"
 }
 
+resource "azurerm_mssql_firewall_rule" "terraform_clients" {
+  for_each = toset(var.sql_firewall_allowed_ipv4_addresses)
+
+  name             = "AllowClient-${replace(each.value, ".", "-")}"
+  server_id        = azurerm_mssql_server.main.id
+  start_ip_address = each.value
+  end_ip_address   = each.value
+}
+
 resource "terraform_data" "webapp_managed_identity_db_user" {
   count = var.create_webapp_managed_identity_db_user ? 1 : 0
 
@@ -78,5 +87,6 @@ resource "terraform_data" "webapp_managed_identity_db_user" {
     azurerm_mssql_server.main,
     azapi_resource.sql_database,
     azurerm_mssql_firewall_rule.allow_azure_services,
+    azurerm_mssql_firewall_rule.terraform_clients,
   ]
 }

@@ -15,6 +15,7 @@ It covers:
 - Azure SQL logical server with Microsoft Entra-only authentication
 - Azure SQL serverless database
 - SQL firewall rule allowing Azure services
+- Optional SQL firewall rules for the public IPs that run `terraform apply`
 
 It intentionally does not deploy the application package.
 
@@ -70,6 +71,10 @@ Optional Key Vault input:
 
 - `key_vault_name`
 
+Optional SQL firewall input:
+
+- `sql_firewall_allowed_ipv4_addresses`
+
 3. Initialize and apply:
 
 ```bash
@@ -108,12 +113,19 @@ This opt-in helper uses a `local-exec` provisioner that runs [`scripts/create_we
 - a Microsoft Entra-authenticated identity that is the configured Azure SQL admin for the server
 - network access to `<sql-server>.database.windows.net:1433`
 
+If the apply host is outside Azure, `AllowAzureServices` is not sufficient. Add the host's public egress IP to `sql_firewall_allowed_ipv4_addresses`. For the current workstation used with this repository, the detected breakout IP is `81.164.248.111`, so the input looks like:
+
+```hcl
+sql_firewall_allowed_ipv4_addresses = ["81.164.248.111"]
+```
+
 Optional inputs:
 
+- `sql_firewall_allowed_ipv4_addresses`
 - `webapp_managed_identity_db_user_name`
 - `webapp_managed_identity_db_user_use_object_id`
 
-The helper is idempotent and retries transient propagation failures, but it still runs from the local Terraform client, not from Azure. Keep the variable disabled in CI or remote runners that don't have the required SQL tooling and auth context.
+The helper is idempotent and retries transient propagation failures, but it still runs from the local Terraform client, not from Azure. Keep the variable disabled in CI or remote runners that don't have the required SQL tooling, auth context, and a predictable outbound IP.
 
 ## Daemon Outputs
 

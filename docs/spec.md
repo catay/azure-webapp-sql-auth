@@ -1013,6 +1013,7 @@ Implementation note:
 - The contained user name can still follow the web app name, but using `WITH OBJECT_ID = '<principal-id>'` removes ambiguity when Microsoft Entra display names are duplicated or drift from the resource name.
 - If `WITH OBJECT_ID` is not used, the contained user name should match the App Service managed identity service principal display name as resolved in Microsoft Entra.
 - In this repository, `infra/terraform` may optionally automate this step with a `local-exec` helper when `create_webapp_managed_identity_db_user = true`. That helper still requires the `terraform apply` host to have `sqlcmd`, network access to the SQL endpoint, and a Microsoft Entra-authenticated SQL admin context.
+- When that Terraform helper is enabled, the SQL server firewall must also allow the public egress IP of the `terraform apply` host. `AllowAzureServices` only covers Azure-originated traffic and does not cover a workstation or external runner. The Terraform configuration exposes `sql_firewall_allowed_ipv4_addresses` for this purpose.
 
 ### 16.15 Validate the deployment
 
