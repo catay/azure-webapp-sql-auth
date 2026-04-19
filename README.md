@@ -40,6 +40,7 @@ That Terraform path provisions:
 It intentionally does not deploy the application package, and it still requires the same post-provision SQL grants for the web app managed identity.
 
 The generated Easy Auth and daemon client secrets are stored in Azure Key Vault. The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is configured as an App Service Key Vault reference rather than a raw secret value.
+The Terraform deployment configures the vault in Azure RBAC mode, grants the web app managed identity the `Key Vault Secrets User` role for secret reads, and grants the identity running `terraform apply` the `Key Vault Secrets Officer` role so Terraform can write the generated secrets.
 
 After `terraform apply`, you can generate a ready-to-copy env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh):
 

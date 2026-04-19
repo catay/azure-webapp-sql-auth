@@ -118,8 +118,11 @@ These values are part of the implementation contract:
 
 - The Easy Auth app registration client secret must be stored in Azure Key Vault.
 - The daemon client app registration secret must be stored in Azure Key Vault when the daemon client is created.
+- The Azure Key Vault must use Azure RBAC for data-plane authorization rather than legacy access policies.
 - The App Service app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` must be configured as an App Service Key Vault reference, not as a raw secret value.
-- The web app may use its system-assigned managed identity to resolve Key Vault references.
+- The web app must use its system-assigned managed identity to resolve Key Vault references.
+- The web app managed identity must be assigned the `Key Vault Secrets User` role on the vault.
+- The identity that provisions or rotates secrets must be assigned a write-capable Key Vault data-plane role such as `Key Vault Secrets Officer` or `Key Vault Administrator`.
 
 ### App Service hosting assumptions
 
@@ -577,7 +580,7 @@ The implementation should proceed in this order:
 2. Create the App Service plan.
 3. Create the web app with Python runtime.
 4. Enable the system-assigned managed identity.
-5. Create the Azure Key Vault and grant secret access to the web app managed identity.
+5. Create the Azure Key Vault in Azure RBAC mode and grant the required Key Vault roles.
 6. Create the Azure SQL logical server.
 7. Create the Azure SQL Database.
 8. Configure server firewall access as needed for setup tasks.
@@ -706,23 +709,32 @@ WEBAPP_MI_PRINCIPAL_ID="$(az webapp identity assign \
   --query principalId -o tsv)"
 ```
 
-### 16.5a Create the Azure Key Vault and allow the web app to read secrets
+### 16.5a Create the Azure Key Vault in RBAC mode and allow the web app to read secrets
 
 ```bash
 az keyvault create \
   --name "$KEY_VAULT_NAME" \
   --resource-group "$RG" \
-  --location "$LOCATION"
+  --location "$LOCATION" \
+  --enable-rbac-authorization true
 ```
 
-Grant secret read access to the web app managed identity:
+Grant the web app managed identity the `Key Vault Secrets User` role:
 
 ```bash
-az keyvault set-policy \
+KEY_VAULT_ID="$(az keyvault show \
   --name "$KEY_VAULT_NAME" \
-  --object-id "$WEBAPP_MI_PRINCIPAL_ID" \
-  --secret-permissions get list
+  --resource-group "$RG" \
+  --query id -o tsv)"
+
+az role assignment create \
+  --assignee-object-id "$WEBAPP_MI_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Key Vault Secrets User" \
+  --scope "$KEY_VAULT_ID"
 ```
+
+Before storing secrets, the identity running the provisioning commands must also have a write-capable data-plane role on the vault, such as `Key Vault Secrets Officer` or `Key Vault Administrator`.
 
 ### 16.6 Create the Azure SQL logical server
 
@@ -807,6 +819,8 @@ az keyvault secret set \
   --name "$EASY_AUTH_SECRET_NAME" \
   --value "$AAD_APP_CLIENT_SECRET"
 ```
+
+If the role assignment was created immediately beforehand, allow for RBAC propagation before running `az keyvault secret set`.
 
 ### 16.10a Expose the App Service API and define the daemon app role
 

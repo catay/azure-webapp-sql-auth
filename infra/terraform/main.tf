@@ -235,6 +235,7 @@ resource "azurerm_key_vault" "main" {
   location                        = azurerm_resource_group.main.location
   resource_group_name             = azurerm_resource_group.main.name
   tenant_id                       = data.azurerm_client_config.current.tenant_id
+  rbac_authorization_enabled      = true
   sku_name                        = "standard"
   soft_delete_retention_days      = 7
   purge_protection_enabled        = false
@@ -242,30 +243,27 @@ resource "azurerm_key_vault" "main" {
   enabled_for_disk_encryption     = false
   enabled_for_template_deployment = false
   tags                            = local.tags
+}
 
-  access_policy {
-    tenant_id = data.azurerm_client_config.current.tenant_id
-    object_id = data.azurerm_client_config.current.object_id
+resource "azurerm_role_assignment" "key_vault_secrets_officer_current" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
 
-    secret_permissions = [
-      "Delete",
-      "Get",
-      "List",
-      "Purge",
-      "Recover",
-      "Set",
-    ]
-  }
+resource "azurerm_role_assignment" "key_vault_secrets_user_webapp" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_linux_web_app.main.identity[0].principal_id
+}
 
-  access_policy {
-    tenant_id = data.azurerm_client_config.current.tenant_id
-    object_id = azurerm_linux_web_app.main.identity[0].principal_id
+resource "time_sleep" "wait_for_key_vault_rbac" {
+  create_duration = "60s"
 
-    secret_permissions = [
-      "Get",
-      "List",
-    ]
-  }
+  depends_on = [
+    azurerm_role_assignment.key_vault_secrets_officer_current,
+    azurerm_role_assignment.key_vault_secrets_user_webapp,
+  ]
 }
 
 resource "azurerm_key_vault_secret" "easy_auth" {
@@ -275,7 +273,7 @@ resource "azurerm_key_vault_secret" "easy_auth" {
   content_type = "Microsoft Entra app registration client secret"
 
   depends_on = [
-    azurerm_key_vault.main,
+    time_sleep.wait_for_key_vault_rbac,
   ]
 }
 
@@ -287,7 +285,7 @@ resource "azurerm_key_vault_secret" "daemon_client" {
   content_type = "Microsoft Entra daemon client secret"
 
   depends_on = [
-    azurerm_key_vault.main,
+    time_sleep.wait_for_key_vault_rbac,
   ]
 }
 

@@ -136,8 +136,13 @@ https://<webapp-name>.azurewebsites.net/api/logins
 - The generated app registration is single-tenant (`AzureADMyOrg`) to match the current sample.
 - The web app is configured for HTTPS-only and Easy Auth redirects unauthenticated users to Microsoft Entra sign-in.
 - The web app uses its system-assigned managed identity to resolve the Easy Auth client secret from Key Vault.
+- The Key Vault uses Azure RBAC authorization, not legacy access policies.
+- Terraform grants the web app managed identity the `Key Vault Secrets User` role on the vault.
+- Terraform grants the identity running `terraform apply` the `Key Vault Secrets Officer` role on the vault so it can write generated secrets.
+- The role assignments require enough control-plane permission to create Azure RBAC assignments, such as `Owner` or `User Access Administrator` on the vault scope or above.
 - The web app authentication settings accept both the Easy Auth client ID and the exposed Application ID URI as valid audiences.
 - The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is stored as an App Service Key Vault reference rather than a raw secret value.
+- Terraform waits briefly for Key Vault RBAC propagation before creating secrets because data-plane permissions are not always effective immediately.
 - Terraform still sees generated secret values because it creates the app-registration passwords before writing them into Key Vault.
 - Daemon authorization for `GET /api/logins` is still enforced in Flask because the sample site also hosts interactive browser routes.
 - The SQL server uses Microsoft Entra-only authentication and does not provision a SQL admin login.
