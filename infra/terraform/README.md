@@ -18,6 +18,22 @@ It covers:
 
 It intentionally does not deploy the application package.
 
+## Module Layout
+
+The configuration is split by concern so the module stays readable as it grows:
+
+- `versions.tf`: Terraform version and required provider constraints
+- `providers.tf`: provider configuration
+- `data.tf`: shared data sources
+- `locals.tf`: derived values and shared tags
+- `random.tf`: generated values used across resources
+- `core.tf`: shared Azure foundation resources such as the resource group and App Service plan
+- `auth.tf`: Microsoft Entra app registrations, service principals, permissions, and daemon client resources
+- `app_service.tf`: Linux web app configuration and Key Vault reference refresh
+- `key_vault.tf`: Key Vault, RBAC assignments, and generated secret storage
+- `sql.tf`: Azure SQL resources and the optional post-provision database user helper
+- `variables.tf` and `outputs.tf`: module input and output contracts
+
 ## Why `azapi` Is Included
 
 The AzureRM SQL database resource does not map cleanly to the current free-offer serverless flow from the shell script. This configuration uses `azapi_resource` for the database itself so the ARM payload can explicitly set `useFreeLimit`, `freeLimitExhaustionBehavior`, and omit `minCapacity` unless it is intentionally configured.
