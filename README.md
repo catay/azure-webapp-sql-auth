@@ -41,7 +41,7 @@ It intentionally does not deploy the application package, and it still requires 
 
 The generated Easy Auth and daemon client secrets are stored in Azure Key Vault. The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is configured as an App Service Key Vault reference rather than a raw secret value.
 The Terraform deployment configures the vault in Azure RBAC mode, grants the web app managed identity the `Key Vault Secrets User` role for secret reads, and grants the identity running `terraform apply` the `Key Vault Secrets Officer` role so Terraform can write the generated secrets.
-Terraform can also define a user app role for clearing dashboard login rows and optionally assign an existing Microsoft Entra security group to that role by object ID.
+Terraform can also define a baseline `dashboard_read` user app role, optionally assign an existing Microsoft Entra security group to that role by object ID, and separately assign the `clear_login_events` admin role to a narrower group.
 
 After `terraform apply`, you can generate a ready-to-copy env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh):
 
@@ -120,7 +120,7 @@ After the SQL grants are applied:
 ## Notes
 
 - The application expects `SQL_SERVER_NAME`, `SQL_DATABASE_NAME`, and `FLASK_SECRET_KEY` as app settings.
-- The application also supports optional `LOGIN_EVENTS_API_APP_ROLE` and `CLEAR_LOGINS_APP_ROLE` overrides when role values differ from the defaults.
+- The application also supports optional `DASHBOARD_READ_APP_ROLE`, `LOGIN_EVENTS_API_APP_ROLE`, and `CLEAR_LOGINS_APP_ROLE` overrides when role values differ from the defaults.
 - The application does not use `SQL_USERNAME` or `SQL_PASSWORD`.
 - App Service must have ODBC Driver 18 for SQL Server available at runtime for `pyodbc` connections.
 - Outside Azure App Service, Easy Auth headers are not trusted by default.

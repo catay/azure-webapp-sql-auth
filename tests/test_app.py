@@ -299,6 +299,7 @@ class AppRouteTests(unittest.TestCase):
                 "TESTING": True,
                 "SECRET_KEY": "test-secret-key",
                 "TRUST_EASY_AUTH_HEADERS": True,
+                "DASHBOARD_READ_APP_ROLE": "dashboard_read",
                 "HEALTH_CHECK_SERVICE": self.health_check_service,
                 "DASHBOARD_SERVICE": self.dashboard_service,
                 "LOGIN_EVENTS_SERVICE": self.login_events_service,
@@ -339,7 +340,7 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"], "authentication_required")
 
     def test_dashboard_inserts_only_once_per_browser_session(self):
-        headers = principal_headers()
+        headers = principal_headers(roles=["dashboard_read"])
 
         first_response = self.client.get("/dashboard", headers=headers)
         second_response = self.client.get("/dashboard", headers=headers)
@@ -357,7 +358,7 @@ class AppRouteTests(unittest.TestCase):
         with mock.patch.object(app_module, "datetime", mock_datetime):
             response = self.client.get(
                 "/dashboard",
-                headers=principal_headers(roles=["clear_login_events"]),
+                headers=principal_headers(roles=["dashboard_read", "clear_login_events"]),
             )
 
         page = response.get_data(as_text=True)
@@ -373,14 +374,28 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("Clear All Logins", page)
         self.assertIn("Page loaded at 2026-04-19 09:15:00 UTC", page)
 
-    def test_dashboard_hides_clear_button_when_user_lacks_role(self):
-        response = self.client.get("/dashboard", headers=principal_headers())
+    def test_dashboard_hides_clear_button_when_reader_lacks_clear_role(self):
+        response = self.client.get("/dashboard", headers=principal_headers(roles=["dashboard_read"]))
 
         page = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('action="/dashboard/logins/clear"', page)
         self.assertNotIn("Clear All Logins", page)
+
+    def test_dashboard_rejects_user_without_dashboard_access_role(self):
+        response = self.client.get("/dashboard", headers=principal_headers())
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_data(as_text=True), "Forbidden")
+
+    def test_dashboard_allows_clear_role_without_separate_reader_role(self):
+        response = self.client.get(
+            "/dashboard",
+            headers=principal_headers(roles=["clear_login_events"]),
+        )
+
+        self.assertEqual(response.status_code, 200)
 
     def test_dashboard_rejects_application_principals(self):
         response = self.client.get(
@@ -438,8 +453,8 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.get_json()["error"], "insufficient_role")
         self.assertEqual(self.clear_logins_service.calls, 0)
 
-    def test_api_logins_returns_json_events_for_authenticated_user(self):
-        response = self.client.get("/api/logins", headers=principal_headers())
+    def test_api_logins_returns_json_events_for_dashboard_reader(self):
+        response = self.client.get("/api/logins", headers=principal_headers(roles=["dashboard_read"]))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -469,6 +484,18 @@ class AppRouteTests(unittest.TestCase):
         )
         self.assertEqual(len(self.login_events_service.calls), 1)
         self.assertEqual(len(self.dashboard_service.calls), 0)
+
+    def test_api_logins_returns_json_events_for_clear_logins_user(self):
+        response = self.client.get("/api/logins", headers=principal_headers(roles=["clear_login_events"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.login_events_service.calls), 1)
+
+    def test_api_logins_rejects_user_without_dashboard_access_role(self):
+        response = self.client.get("/api/logins", headers=principal_headers())
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["error"], "insufficient_role")
 
     def test_api_logins_returns_json_events_for_authorized_daemon(self):
         response = self.client.get(

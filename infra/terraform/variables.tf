@@ -189,6 +189,19 @@ variable "login_events_api_app_role" {
   default     = "read_login_events"
 }
 
+variable "dashboard_read_app_role" {
+  description = "User app role value required to view the dashboard and read login events."
+  type        = string
+  default     = "dashboard_read"
+}
+
+variable "dashboard_read_group_object_id" {
+  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-read user role."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "clear_logins_app_role" {
   description = "User app role value required to clear dashboard login rows."
   type        = string

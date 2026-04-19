@@ -62,8 +62,10 @@ By default, the SQL Microsoft Entra admin is set to the identity running Terrafo
 - `sql_aad_admin_name`
 - `sql_aad_admin_object_id`
 
-Optional daemon-related inputs:
+Optional auth-related inputs:
 
+- `dashboard_read_app_role`
+- `dashboard_read_group_object_id`
 - `clear_logins_app_role`
 - `clear_logins_admin_group_object_id`
 - `create_daemon_client`
@@ -142,6 +144,8 @@ The helper is idempotent and retries transient propagation failures, but it stil
 
 Terraform also creates:
 
+- a user app role on the App Service app registration for viewing the dashboard and reading login events
+- an optional assignment of that dashboard-read role to an existing external security group when `dashboard_read_group_object_id` is set
 - a user app role on the App Service app registration for clearing dashboard login rows
 - an optional assignment of that clear-logins role to an existing external security group when `clear_logins_admin_group_object_id` is set
 - when `create_daemon_client = true`, an app role on the App Service app registration for daemon access to `GET /api/logins`
@@ -151,6 +155,8 @@ Terraform also creates:
 
 Useful outputs:
 
+- `dashboard_read_app_role`
+- `dashboard_read_group_object_id`
 - `clear_logins_app_role`
 - `clear_logins_admin_group_object_id`
 - `key_vault_name`

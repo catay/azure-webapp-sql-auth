@@ -1,3 +1,4 @@
+resource "random_uuid" "dashboard_read_app_role" {}
 resource "random_uuid" "login_events_api_app_role" {}
 resource "random_uuid" "clear_logins_app_role" {}
 
@@ -22,6 +23,15 @@ resource "azuread_application" "easy_auth" {
       id   = data.azuread_service_principal.msgraph.oauth2_permission_scope_ids["email"]
       type = "Scope"
     }
+  }
+
+  app_role {
+    allowed_member_types = ["User"]
+    description          = "Allows assigned users or groups to view the dashboard and read login events."
+    display_name         = "Dashboard Read"
+    enabled              = true
+    id                   = random_uuid.dashboard_read_app_role.result
+    value                = local.dashboard_read_app_role
   }
 
   app_role {
@@ -121,5 +131,12 @@ resource "azuread_app_role_assignment" "clear_logins_admin_group" {
   count               = var.clear_logins_admin_group_object_id != null ? 1 : 0
   app_role_id         = azuread_application.easy_auth.app_role_ids[local.clear_logins_app_role]
   principal_object_id = var.clear_logins_admin_group_object_id
+  resource_object_id  = azuread_service_principal.easy_auth.object_id
+}
+
+resource "azuread_app_role_assignment" "dashboard_read_group" {
+  count               = var.dashboard_read_group_object_id != null ? 1 : 0
+  app_role_id         = azuread_application.easy_auth.app_role_ids[local.dashboard_read_app_role]
+  principal_object_id = var.dashboard_read_group_object_id
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }

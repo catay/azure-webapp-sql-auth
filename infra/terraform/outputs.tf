@@ -48,6 +48,16 @@ output "easy_auth_application_id_uri" {
   value       = azuread_application_identifier_uri.easy_auth.identifier_uri
 }
 
+output "dashboard_read_app_role" {
+  description = "User app role required to view the dashboard and read login events."
+  value       = var.dashboard_read_app_role
+}
+
+output "dashboard_read_group_object_id" {
+  description = "Configured external security group object ID assigned to the dashboard-read role, if any."
+  value       = var.dashboard_read_group_object_id
+}
+
 output "clear_logins_app_role" {
   description = "User app role required to clear dashboard login rows."
   value       = var.clear_logins_app_role

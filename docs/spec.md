@@ -111,6 +111,7 @@ These decisions are fixed to reduce ambiguity for the implementing agent.
 
 These values are part of the implementation contract:
 
+- App role value required for user access to `GET /dashboard` and user-side `GET /api/logins`: `dashboard_read`
 - App role value required for daemon access to `GET /api/logins`: `read_login_events`
 - App role value required for user access to `POST /dashboard/logins/clear`: `clear_login_events`
 - Default Application ID URI for the App Service API: `api://<easy-auth-client-id>`
@@ -217,10 +218,10 @@ Implementation rule:
 - The app must distinguish between:
   - interactive user principals
   - application principals
-- `GET /dashboard` must allow only interactive user principals.
+- `GET /dashboard` must allow only interactive user principals that contain either the `dashboard_read` or `clear_login_events` app role.
 - `POST /dashboard/logins/clear` must allow interactive user principals that contain the `clear_login_events` app role.
 - `GET /api/logins` must allow:
-  - interactive user principals
+  - interactive user principals that contain either the `dashboard_read` or `clear_login_events` app role
   - application principals that contain the `read_login_events` app role
 
 ## 5. Functional Requirements
@@ -290,9 +291,9 @@ Implementation rules:
 - The endpoint must insert an audit row when the caller is an authorized application principal.
 - The endpoint should not insert an additional audit row when the caller is a user principal that is only reading the API.
 - The endpoint must allow:
-  - authenticated user principals
+  - authenticated user principals that contain either the `dashboard_read` or `clear_login_events` app role
   - authenticated application principals with the `read_login_events` app role
-- The endpoint must reject authenticated application principals that do not have the required app role.
+- The endpoint must reject authenticated principals that do not have the required role for their principal type.
 
 If the request is unauthenticated, the endpoint must return HTTP 401 with a JSON body:
 
@@ -331,7 +332,7 @@ The implementation should use these routes unless there is a strong reason to ch
   - Redirects to `/dashboard`.
 - `GET /dashboard`
   - Requires authentication.
-  - Allows only authenticated user principals.
+  - Allows only authenticated user principals that contain either the `dashboard_read` or `clear_login_events` app role.
   - Records the login event for the current browser session if not already recorded.
   - Loads recent user and application login rows from Azure SQL.
   - Renders the main HTML page.
@@ -342,7 +343,7 @@ The implementation should use these routes unless there is a strong reason to ch
   - Redirects back to `/dashboard`.
 - `GET /api/logins`
   - Requires authentication.
-  - Allows authenticated user principals.
+  - Allows authenticated user principals that contain either the `dashboard_read` or `clear_login_events` app role.
   - Allows authenticated application principals that contain the `read_login_events` app role.
   - Records an application login row when called by an authorized application principal.
   - Loads recent user and application login rows from Azure SQL.
@@ -442,6 +443,7 @@ Optional app settings:
 
 - `PORT`
 - `WEBSITES_PORT`
+- `DASHBOARD_READ_APP_ROLE`
 - `LOGIN_EVENTS_API_APP_ROLE`
 - `CLEAR_LOGINS_APP_ROLE`
 
@@ -663,6 +665,7 @@ SQL_AAD_ADMIN_OBJECT_ID="595d861c-6322-4ca1-a607-4e502649c6aa"
 AAD_APP_NAME="app-${WEBAPP_NAME}"
 AAD_APP_REDIRECT_URI="https://${WEBAPP_NAME}.azurewebsites.net/.auth/login/aad/callback"
 AAD_APP_IDENTIFIER_URI="api://<easy-auth-client-id>"
+DASHBOARD_READ_APP_ROLE="dashboard_read"
 CLEAR_LOGINS_APP_ROLE="clear_login_events"
 LOGIN_EVENTS_APP_ROLE="read_login_events"
 DAEMON_APP_NAME="${WEBAPP_NAME}-daemon"
@@ -949,6 +952,7 @@ az webapp config appsettings set \
   --resource-group "$RG" \
   --name "$WEBAPP_NAME" \
   --settings \
+    DASHBOARD_READ_APP_ROLE="$DASHBOARD_READ_APP_ROLE" \
     CLEAR_LOGINS_APP_ROLE="$CLEAR_LOGINS_APP_ROLE" \
     LOGIN_EVENTS_API_APP_ROLE="$LOGIN_EVENTS_APP_ROLE" \
     SQL_SERVER_NAME="${SQL_SERVER_NAME}.database.windows.net" \
@@ -1066,16 +1070,22 @@ Equivalent Microsoft Entra and App Service portal steps:
 2. Go to `Expose an API`.
 3. Set the Application ID URI to `api://<easy-auth-client-id>` unless a different approved URI is required.
 4. Add an app role:
+   - Display name: `Dashboard Read`
+   - Allowed member types: `Users/Groups`
+   - Value: `dashboard_read`
+   - Description: a description that states the role allows approved users or groups to view the dashboard and read login events
+5. Add another app role:
    - Display name: `Clear Login Events`
    - Allowed member types: `Users/Groups`
    - Value: `clear_login_events`
    - Description: a description that states the role allows approved users or groups to clear dashboard login rows
-5. Add another app role:
+6. Add another app role:
    - Display name: `Read Login Events`
    - Allowed member types: `Applications`
    - Value: `read_login_events`
    - Description: a description that states the role allows daemon access to the login events API
-6. Assign the `clear_login_events` role to the approved security group or users.
+7. Assign the `dashboard_read` role to the approved reader security group or users.
+8. Assign the `clear_login_events` role to the approved admin security group or users.
 7. Create a new app registration for the daemon client.
 8. Create a client secret or upload a certificate for the daemon client.
 9. On the daemon app registration, go to `API permissions`.
@@ -1099,11 +1109,12 @@ Portal recommendation:
 The implementation is complete only when all of the following are true:
 
 - Visiting the site while anonymous causes a Microsoft sign-in flow.
-- After sign-in, the user reaches the dashboard successfully.
+- After sign-in, a user with `dashboard_read` or `clear_login_events` reaches the dashboard successfully.
 - The dashboard shows the signed-in user's identity details.
-- Authenticated `GET /api/logins` returns recent login rows as JSON.
+- Authenticated `GET /api/logins` by a user with `dashboard_read` or `clear_login_events` returns recent login rows as JSON.
 - Authenticated `GET /api/logins` with a daemon application token that contains `read_login_events` returns recent login rows as JSON.
 - Authenticated `GET /dashboard` with an application token is rejected.
+- Authenticated `GET /dashboard` by a user without `dashboard_read` or `clear_login_events` is rejected.
 - Authenticated `POST /dashboard/logins/clear` by a user without `clear_login_events` is rejected.
 - Authenticated `POST /dashboard/logins/clear` by a user with `clear_login_events` clears the table and redirects back to `/dashboard`.
 - The app creates `dbo.user_logins` automatically if it does not exist.
@@ -1138,12 +1149,14 @@ These choices are intentional for the sample implementation:
 ## 20. Minimum Test Checklist
 
 - Anonymous request to `/dashboard` redirects to sign-in.
-- Authenticated request to `/dashboard` returns HTTP 200.
+- Authenticated request to `/dashboard` with `dashboard_read` returns HTTP 200.
+- Authenticated request to `/dashboard` without `dashboard_read` or `clear_login_events` returns HTTP 403.
 - Application-principal request to `/dashboard` returns HTTP 403.
 - User-principal request to `/dashboard/logins/clear` without `clear_login_events` returns HTTP 403.
 - User-principal request to `/dashboard/logins/clear` with `clear_login_events` redirects back to `/dashboard`.
 - Anonymous request to `/api/logins` returns HTTP 401 JSON.
-- Authenticated request to `/api/logins` returns HTTP 200 JSON.
+- Authenticated request to `/api/logins` with `dashboard_read` returns HTTP 200 JSON.
+- Authenticated request to `/api/logins` without `dashboard_read` or `clear_login_events` returns HTTP 403 JSON.
 - Application-principal request to `/api/logins` without `read_login_events` returns HTTP 403 JSON.
 - Application-principal request to `/api/logins` with `read_login_events` returns HTTP 200 JSON.
 - First authenticated request in a new browser session inserts one login row.
