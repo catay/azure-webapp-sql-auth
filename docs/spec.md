@@ -341,7 +341,8 @@ The implementation should use these routes unless there is a strong reason to ch
   - Returns the rows as JSON.
   - Does not insert an additional audit row for user principals that are only reading the API.
 - `GET /healthz`
-  - Returns `200 OK` and a simple body like `ok`.
+  - Returns `200 OK` and a simple body like `ok` when the app can reach Azure SQL.
+  - Returns `503 Service Unavailable` when the database connectivity check fails.
   - Must remain anonymous to support health checks.
 - `GET /.auth/me`
   - Provided by Easy Auth, not implemented by Flask.
@@ -1124,4 +1125,4 @@ These choices are intentional for the sample implementation:
 - First authenticated request in a new browser session inserts one login row.
 - Refreshing `/dashboard` in the same session does not insert another row.
 - Recent rows query returns newest first.
-- `/healthz` returns HTTP 200.
+- `/healthz` returns HTTP 200 only when the application can reach Azure SQL, otherwise HTTP 503.

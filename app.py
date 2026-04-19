@@ -69,6 +69,7 @@ def create_app(test_config=None):
         SQL_SERVER_NAME=os.environ.get("SQL_SERVER_NAME", "").strip(),
         SQL_DATABASE_NAME=os.environ.get("SQL_DATABASE_NAME", "").strip(),
         TRUST_EASY_AUTH_HEADERS=_is_running_on_app_service(),
+        HEALTH_CHECK_SERVICE=check_database_health,
         DASHBOARD_SERVICE=load_dashboard_data,
         LOGIN_EVENTS_SERVICE=load_login_events,
         LOGIN_EVENTS_APP_ROLE=os.environ.get("LOGIN_EVENTS_API_APP_ROLE", LOGIN_EVENTS_APP_ROLE).strip()
@@ -125,7 +126,9 @@ def create_app(test_config=None):
 
     @app.get("/healthz")
     def healthz():
-        return Response("ok", mimetype="text/plain")
+        if current_app.config["HEALTH_CHECK_SERVICE"]():
+            return Response("ok", mimetype="text/plain")
+        return Response("database unavailable", mimetype="text/plain", status=503)
 
     @app.get("/api/logins")
     def api_logins():
@@ -310,6 +313,17 @@ def load_login_events(_user):
         rows = fetch_recent_logins(connection)
         connection.commit()
         return rows
+
+
+def check_database_health():
+    try:
+        with closing(open_sql_connection()) as connection:
+            with closing(connection.cursor()) as cursor:
+                cursor.execute("SELECT 1")
+        return True
+    except Exception:
+        current_app.logger.exception("Database health check failed.")
+        return False
 
 
 def _authorize_login_events_api(principal):

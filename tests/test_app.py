@@ -131,6 +131,16 @@ class FakeLoginEventsService:
         return list(self.rows)
 
 
+class FakeHealthCheckService:
+    def __init__(self, is_healthy=True):
+        self.calls = 0
+        self.is_healthy = is_healthy
+
+    def __call__(self):
+        self.calls += 1
+        return self.is_healthy
+
+
 class FakeCursor:
     def __init__(self, rows):
         self.rows = rows
@@ -234,15 +244,38 @@ class LoadLoginEventsTests(unittest.TestCase):
         self.assertTrue(connection.committed)
 
 
+class HealthCheckTests(unittest.TestCase):
+    def test_check_database_health_runs_a_lightweight_query(self):
+        cursor = FakeCursor([])
+        connection = FakeConnection(cursor)
+
+        with app_module.create_app({"TESTING": True}).app_context():
+            with mock.patch.object(app_module, "open_sql_connection", return_value=connection):
+                is_healthy = app_module.check_database_health()
+
+        self.assertTrue(is_healthy)
+        self.assertEqual(cursor.executed, [("SELECT 1", ())])
+        self.assertTrue(connection.closed)
+
+    def test_check_database_health_returns_false_when_connection_fails(self):
+        with app_module.create_app({"TESTING": True}).app_context():
+            with mock.patch.object(app_module, "open_sql_connection", side_effect=RuntimeError("boom")):
+                is_healthy = app_module.check_database_health()
+
+        self.assertFalse(is_healthy)
+
+
 class AppRouteTests(unittest.TestCase):
     def setUp(self):
         self.dashboard_service = FakeDashboardService()
         self.login_events_service = FakeLoginEventsService()
+        self.health_check_service = FakeHealthCheckService()
         self.app = app_module.create_app(
             {
                 "TESTING": True,
                 "SECRET_KEY": "test-secret-key",
                 "TRUST_EASY_AUTH_HEADERS": True,
+                "HEALTH_CHECK_SERVICE": self.health_check_service,
                 "DASHBOARD_SERVICE": self.dashboard_service,
                 "LOGIN_EVENTS_SERVICE": self.login_events_service,
             }
@@ -254,6 +287,15 @@ class AppRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_data(as_text=True), "ok")
+        self.assertEqual(self.health_check_service.calls, 1)
+
+    def test_healthz_returns_503_when_database_is_unavailable(self):
+        self.health_check_service.is_healthy = False
+
+        response = self.client.get("/healthz")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_data(as_text=True), "database unavailable")
 
     def test_dashboard_redirects_to_easy_auth_when_anonymous(self):
         response = self.client.get("/dashboard")
