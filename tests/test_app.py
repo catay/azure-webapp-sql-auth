@@ -16,19 +16,20 @@ def encode_principal(claims, auth_typ="aad"):
     return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
 
 
-def principal_headers():
-    return {
-        "X-MS-CLIENT-PRINCIPAL": encode_principal(
-            [
-                {"typ": "name", "val": "Alice Smith"},
-                {"typ": "preferred_username", "val": "alice@example.com"},
-                {
-                    "typ": "http://schemas.microsoft.com/identity/claims/objectidentifier",
-                    "val": "00000000-0000-0000-0000-000000000000",
-                },
-            ]
-        )
-    }
+def principal_headers(roles=None):
+    claims = [
+        {"typ": "name", "val": "Alice Smith"},
+        {"typ": "preferred_username", "val": "alice@example.com"},
+        {
+            "typ": "http://schemas.microsoft.com/identity/claims/objectidentifier",
+            "val": "00000000-0000-0000-0000-000000000000",
+        },
+    ]
+
+    for role in roles or []:
+        claims.append({"typ": "roles", "val": role})
+
+    return {"X-MS-CLIENT-PRINCIPAL": encode_principal(claims)}
 
 
 def daemon_principal_headers(roles=None, appid="daemon-client-id", object_id="daemon-object-id"):
@@ -129,6 +130,14 @@ class FakeLoginEventsService:
     def __call__(self, user):
         self.calls.append({"user": user})
         return list(self.rows)
+
+
+class FakeClearLoginsService:
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
 
 
 class FakeHealthCheckService:
@@ -244,6 +253,20 @@ class LoadLoginEventsTests(unittest.TestCase):
         self.assertTrue(connection.committed)
 
 
+class ClearLoginEventsTests(unittest.TestCase):
+    def test_clear_login_events_deletes_all_rows_and_commits(self):
+        cursor = FakeCursor([])
+        connection = FakeConnection(cursor)
+
+        with app_module.create_app({"TESTING": True}).app_context():
+            with mock.patch.object(app_module, "open_sql_connection", return_value=connection):
+                app_module.clear_login_events()
+
+        executed_sql = "\n".join(sql for sql, _params in cursor.executed)
+        self.assertIn("DELETE FROM dbo.user_logins", executed_sql)
+        self.assertTrue(connection.committed)
+
+
 class HealthCheckTests(unittest.TestCase):
     def test_check_database_health_runs_a_lightweight_query(self):
         cursor = FakeCursor([])
@@ -269,6 +292,7 @@ class AppRouteTests(unittest.TestCase):
     def setUp(self):
         self.dashboard_service = FakeDashboardService()
         self.login_events_service = FakeLoginEventsService()
+        self.clear_logins_service = FakeClearLoginsService()
         self.health_check_service = FakeHealthCheckService()
         self.app = app_module.create_app(
             {
@@ -278,6 +302,8 @@ class AppRouteTests(unittest.TestCase):
                 "HEALTH_CHECK_SERVICE": self.health_check_service,
                 "DASHBOARD_SERVICE": self.dashboard_service,
                 "LOGIN_EVENTS_SERVICE": self.login_events_service,
+                "CLEAR_LOGINS_SERVICE": self.clear_logins_service,
+                "CLEAR_LOGINS_APP_ROLE": "clear_login_events",
             }
         )
         self.client = self.app.test_client()
@@ -329,7 +355,10 @@ class AppRouteTests(unittest.TestCase):
         mock_datetime.now.return_value.strftime.return_value = "2026-04-19 09:15:00 UTC"
 
         with mock.patch.object(app_module, "datetime", mock_datetime):
-            response = self.client.get("/dashboard", headers=principal_headers())
+            response = self.client.get(
+                "/dashboard",
+                headers=principal_headers(roles=["clear_login_events"]),
+            )
 
         page = response.get_data(as_text=True)
 
@@ -340,7 +369,18 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("application", page)
         self.assertIn("daemon-client-id", page)
         self.assertIn('href="/api/logins"', page)
+        self.assertIn('action="/dashboard/logins/clear"', page)
+        self.assertIn("Clear All Logins", page)
         self.assertIn("Page loaded at 2026-04-19 09:15:00 UTC", page)
+
+    def test_dashboard_hides_clear_button_when_user_lacks_role(self):
+        response = self.client.get("/dashboard", headers=principal_headers())
+
+        page = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('action="/dashboard/logins/clear"', page)
+        self.assertNotIn("Clear All Logins", page)
 
     def test_dashboard_rejects_application_principals(self):
         response = self.client.get(
@@ -350,6 +390,53 @@ class AppRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.get_data(as_text=True), "Forbidden")
+
+    def test_clear_logins_redirects_back_to_dashboard_for_authenticated_user(self):
+        response = self.client.post(
+            "/dashboard/logins/clear",
+            headers=principal_headers(roles=["clear_login_events"]),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/dashboard")
+        self.assertEqual(self.clear_logins_service.calls, 1)
+
+    def test_clear_logins_rejects_user_without_required_role(self):
+        response = self.client.post("/dashboard/logins/clear", headers=principal_headers())
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_data(as_text=True), "Forbidden")
+        self.assertEqual(self.clear_logins_service.calls, 0)
+
+    def test_clear_logins_rejects_application_principals(self):
+        response = self.client.post(
+            "/dashboard/logins/clear",
+            headers=daemon_principal_headers(roles=["read_login_events"]),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_data(as_text=True), "Forbidden")
+        self.assertEqual(self.clear_logins_service.calls, 0)
+
+    def test_clear_logins_redirects_anonymous_browser_to_easy_auth(self):
+        response = self.client.post("/dashboard/logins/clear")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/.auth/login/aad")
+        self.assertEqual(self.clear_logins_service.calls, 0)
+
+    def test_clear_logins_returns_json_403_when_json_is_preferred_without_required_role(self):
+        response = self.client.post(
+            "/dashboard/logins/clear",
+            headers={
+                **principal_headers(),
+                "Accept": "application/json",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["error"], "insufficient_role")
+        self.assertEqual(self.clear_logins_service.calls, 0)
 
     def test_api_logins_returns_json_events_for_authenticated_user(self):
         response = self.client.get("/api/logins", headers=principal_headers())

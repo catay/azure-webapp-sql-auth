@@ -189,6 +189,19 @@ variable "login_events_api_app_role" {
   default     = "read_login_events"
 }
 
+variable "clear_logins_app_role" {
+  description = "User app role value required to clear dashboard login rows."
+  type        = string
+  default     = "clear_login_events"
+}
+
+variable "clear_logins_admin_group_object_id" {
+  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the clear-logins user role."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "create_daemon_client" {
   description = "Whether Terraform should create a daemon client app registration and grant it application permission to the web app API."
   type        = bool

@@ -90,6 +90,39 @@
         box-shadow: 0 10px 24px var(--shadow);
       }
 
+      .table-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.75rem;
+      }
+
+      .danger-form {
+        margin: 0;
+      }
+
+      .danger-button {
+        border: 1px solid rgba(111, 47, 23, 0.2);
+        border-radius: 999px;
+        padding: 0.7rem 1rem;
+        font: inherit;
+        font-weight: 700;
+        color: #fffdfa;
+        background: linear-gradient(135deg, #b23b21 0%, #7f1f12 100%);
+        box-shadow: 0 8px 20px rgba(127, 31, 18, 0.2);
+        cursor: pointer;
+      }
+
+      .danger-button:hover {
+        filter: brightness(1.05);
+      }
+
+      .danger-button:focus-visible {
+        outline: 3px solid rgba(178, 59, 33, 0.28);
+        outline-offset: 2px;
+      }
+
       .user-card,
       .table-card {
         background: var(--panel);
@@ -131,7 +164,7 @@
 
       .table-header {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
         gap: 1rem;
         padding: 1.2rem 1.5rem;
@@ -187,6 +220,11 @@
           width: 100%;
         }
 
+        .table-actions {
+          width: 100%;
+          justify-content: flex-start;
+        }
+
         th,
         td {
           padding: 0.85rem 1rem;
@@ -240,7 +278,16 @@
       <section class="table-card" aria-labelledby="recent-logins-heading">
         <div class="table-header">
           <h2 id="recent-logins-heading">Recent User and Application Events</h2>
-          <span>Showing up to 50 rows, newest first, timestamps in UTC.</span>
+          <div class="table-actions">
+            <span>Showing up to 50 rows, newest first, timestamps in UTC.</span>
+            {% if clear_logins_allowed %}
+            <form class="danger-form" method="post" action="{{ clear_logins_url }}">
+              <button class="danger-button" type="submit">
+                Clear All Logins
+              </button>
+            </form>
+            {% endif %}
+          </div>
         </div>
 
         {% if login_rows %}

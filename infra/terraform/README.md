@@ -10,7 +10,7 @@ It covers:
 - App settings required by the Flask app
 - Azure Key Vault for generated Microsoft Entra client secrets
 - App Service Authentication / Easy Auth with a Microsoft Entra app registration
-- Application ID URI and app role exposure for the App Service API
+- Application ID URI and app role exposure for the App Service API and dashboard administration
 - Optional daemon client app registration with application permission to `GET /api/logins`
 - Azure SQL logical server with Microsoft Entra-only authentication
 - Azure SQL serverless database
@@ -64,6 +64,8 @@ By default, the SQL Microsoft Entra admin is set to the identity running Terrafo
 
 Optional daemon-related inputs:
 
+- `clear_logins_app_role`
+- `clear_logins_admin_group_object_id`
 - `create_daemon_client`
 - `daemon_client_name`
 - `aad_app_identifier_uri`
@@ -136,17 +138,21 @@ Optional inputs:
 
 The helper is idempotent and retries transient propagation failures, but it still runs from the local Terraform client, not from Azure. Keep the variable disabled in CI or remote runners that don't have the required SQL tooling, auth context, and a predictable outbound IP.
 
-## Daemon Outputs
+## Auth Outputs
 
-When `create_daemon_client = true`, Terraform also creates:
+Terraform also creates:
 
-- an app role on the App Service app registration for daemon access to `GET /api/logins`
-- a daemon client application registration
-- a daemon client secret stored in Azure Key Vault
-- the application-permission grant and admin-consent equivalent app-role assignment
+- a user app role on the App Service app registration for clearing dashboard login rows
+- an optional assignment of that clear-logins role to an existing external security group when `clear_logins_admin_group_object_id` is set
+- when `create_daemon_client = true`, an app role on the App Service app registration for daemon access to `GET /api/logins`
+- when `create_daemon_client = true`, a daemon client application registration
+- when `create_daemon_client = true`, a daemon client secret stored in Azure Key Vault
+- when `create_daemon_client = true`, the application-permission grant and admin-consent equivalent app-role assignment
 
 Useful outputs:
 
+- `clear_logins_app_role`
+- `clear_logins_admin_group_object_id`
 - `key_vault_name`
 - `easy_auth_application_id_uri`
 - `easy_auth_client_secret_name`

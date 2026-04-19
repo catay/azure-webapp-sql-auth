@@ -112,6 +112,7 @@ These decisions are fixed to reduce ambiguity for the implementing agent.
 These values are part of the implementation contract:
 
 - App role value required for daemon access to `GET /api/logins`: `read_login_events`
+- App role value required for user access to `POST /dashboard/logins/clear`: `clear_login_events`
 - Default Application ID URI for the App Service API: `api://<easy-auth-client-id>`
 
 ### Secrets management
@@ -217,6 +218,7 @@ Implementation rule:
   - interactive user principals
   - application principals
 - `GET /dashboard` must allow only interactive user principals.
+- `POST /dashboard/logins/clear` must allow interactive user principals that contain the `clear_login_events` app role.
 - `GET /api/logins` must allow:
   - interactive user principals
   - application principals that contain the `read_login_events` app role
@@ -254,6 +256,7 @@ The dashboard must show:
 
 - The current signed-in user summary.
 - A table of recent user and application login events.
+- A button that clears all stored login rows from the database when the signed-in user has the `clear_login_events` app role.
 
 The table must include:
 
@@ -332,6 +335,11 @@ The implementation should use these routes unless there is a strong reason to ch
   - Records the login event for the current browser session if not already recorded.
   - Loads recent user and application login rows from Azure SQL.
   - Renders the main HTML page.
+- `POST /dashboard/logins/clear`
+  - Requires authentication.
+  - Allows only authenticated user principals that contain the `clear_login_events` app role.
+  - Deletes all rows from `dbo.user_logins`.
+  - Redirects back to `/dashboard`.
 - `GET /api/logins`
   - Requires authentication.
   - Allows authenticated user principals.
@@ -434,6 +442,8 @@ Optional app settings:
 
 - `PORT`
 - `WEBSITES_PORT`
+- `LOGIN_EVENTS_API_APP_ROLE`
+- `CLEAR_LOGINS_APP_ROLE`
 
 The app must not define or expect:
 
@@ -652,6 +662,7 @@ SQL_AAD_ADMIN_OBJECT_ID="595d861c-6322-4ca1-a607-4e502649c6aa"
 AAD_APP_NAME="app-${WEBAPP_NAME}"
 AAD_APP_REDIRECT_URI="https://${WEBAPP_NAME}.azurewebsites.net/.auth/login/aad/callback"
 AAD_APP_IDENTIFIER_URI="api://<easy-auth-client-id>"
+CLEAR_LOGINS_APP_ROLE="clear_login_events"
 LOGIN_EVENTS_APP_ROLE="read_login_events"
 DAEMON_APP_NAME="${WEBAPP_NAME}-daemon"
 EASY_AUTH_SECRET_NAME="easy-auth-client-secret"
@@ -937,6 +948,7 @@ az webapp config appsettings set \
   --resource-group "$RG" \
   --name "$WEBAPP_NAME" \
   --settings \
+    CLEAR_LOGINS_APP_ROLE="$CLEAR_LOGINS_APP_ROLE" \
     LOGIN_EVENTS_API_APP_ROLE="$LOGIN_EVENTS_APP_ROLE" \
     SQL_SERVER_NAME="${SQL_SERVER_NAME}.database.windows.net" \
     SQL_DATABASE_NAME="$SQL_DB_NAME" \
@@ -1053,22 +1065,28 @@ Equivalent Microsoft Entra and App Service portal steps:
 2. Go to `Expose an API`.
 3. Set the Application ID URI to `api://<easy-auth-client-id>` unless a different approved URI is required.
 4. Add an app role:
+   - Display name: `Clear Login Events`
+   - Allowed member types: `Users/Groups`
+   - Value: `clear_login_events`
+   - Description: a description that states the role allows approved users or groups to clear dashboard login rows
+5. Add another app role:
    - Display name: `Read Login Events`
    - Allowed member types: `Applications`
    - Value: `read_login_events`
    - Description: a description that states the role allows daemon access to the login events API
-5. Create a new app registration for the daemon client.
-6. Create a client secret or upload a certificate for the daemon client.
-7. On the daemon app registration, go to `API permissions`.
-8. Add a permission:
+6. Assign the `clear_login_events` role to the approved security group or users.
+7. Create a new app registration for the daemon client.
+8. Create a client secret or upload a certificate for the daemon client.
+9. On the daemon app registration, go to `API permissions`.
+10. Add a permission:
    - `My APIs`
    - select the App Service app registration
    - choose `Application permissions`
    - select `read_login_events`
-9. Grant admin consent for the tenant.
-10. Open the App Service Authentication blade in Azure portal.
-11. Edit the Microsoft identity provider settings if needed and make sure the App Service app registration is the same one that exposes the API.
-12. Add the Application ID URI to the allowed token audiences if it is not already accepted.
+11. Grant admin consent for the tenant.
+12. Open the App Service Authentication blade in Azure portal.
+13. Edit the Microsoft identity provider settings if needed and make sure the App Service app registration is the same one that exposes the API.
+14. Add the Application ID URI to the allowed token audiences if it is not already accepted.
 
 Portal recommendation:
 
@@ -1085,6 +1103,8 @@ The implementation is complete only when all of the following are true:
 - Authenticated `GET /api/logins` returns recent login rows as JSON.
 - Authenticated `GET /api/logins` with a daemon application token that contains `read_login_events` returns recent login rows as JSON.
 - Authenticated `GET /dashboard` with an application token is rejected.
+- Authenticated `POST /dashboard/logins/clear` by a user without `clear_login_events` is rejected.
+- Authenticated `POST /dashboard/logins/clear` by a user with `clear_login_events` clears the table and redirects back to `/dashboard`.
 - The app creates `dbo.user_logins` automatically if it does not exist.
 - The app inserts a login row for a newly authenticated browser session.
 - The app inserts an application login row when an authorized daemon calls `GET /api/logins`.
@@ -1119,6 +1139,8 @@ These choices are intentional for the sample implementation:
 - Anonymous request to `/dashboard` redirects to sign-in.
 - Authenticated request to `/dashboard` returns HTTP 200.
 - Application-principal request to `/dashboard` returns HTTP 403.
+- User-principal request to `/dashboard/logins/clear` without `clear_login_events` returns HTTP 403.
+- User-principal request to `/dashboard/logins/clear` with `clear_login_events` redirects back to `/dashboard`.
 - Anonymous request to `/api/logins` returns HTTP 401 JSON.
 - Authenticated request to `/api/logins` returns HTTP 200 JSON.
 - Application-principal request to `/api/logins` without `read_login_events` returns HTTP 403 JSON.

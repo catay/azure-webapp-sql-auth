@@ -1,8 +1,18 @@
 resource "random_uuid" "login_events_api_app_role" {}
+resource "random_uuid" "clear_logins_app_role" {}
 
 resource "azuread_application" "easy_auth" {
   display_name     = local.aad_app_name
   sign_in_audience = "AzureADMyOrg"
+
+  app_role {
+    allowed_member_types = ["User"]
+    description          = "Allows assigned users or groups to clear dashboard login rows."
+    display_name         = "Clear Login Events"
+    enabled              = true
+    id                   = random_uuid.clear_logins_app_role.result
+    value                = local.clear_logins_app_role
+  }
 
   app_role {
     allowed_member_types = ["Application"]
@@ -85,5 +95,12 @@ resource "azuread_app_role_assignment" "daemon_client_login_events" {
   count               = var.create_daemon_client ? 1 : 0
   app_role_id         = azuread_application.easy_auth.app_role_ids[local.login_events_api_app_role]
   principal_object_id = azuread_service_principal.daemon_client[0].object_id
+  resource_object_id  = azuread_service_principal.easy_auth.object_id
+}
+
+resource "azuread_app_role_assignment" "clear_logins_admin_group" {
+  count               = var.clear_logins_admin_group_object_id != null ? 1 : 0
+  app_role_id         = azuread_application.easy_auth.app_role_ids[local.clear_logins_app_role]
+  principal_object_id = var.clear_logins_admin_group_object_id
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }

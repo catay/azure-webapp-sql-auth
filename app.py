@@ -20,6 +20,7 @@ SQL_CONNECT_TIMEOUT_SECONDS = 30
 SQL_CONNECT_RETRIES = 2
 SQL_CONNECT_RETRY_DELAY_SECONDS = 10
 LOGIN_EVENTS_APP_ROLE = "read_login_events"
+CLEAR_LOGINS_APP_ROLE = "clear_login_events"
 SCHEMA_SQL = """
 IF NOT EXISTS (
     SELECT 1
@@ -72,8 +73,11 @@ def create_app(test_config=None):
         HEALTH_CHECK_SERVICE=check_database_health,
         DASHBOARD_SERVICE=load_dashboard_data,
         LOGIN_EVENTS_SERVICE=load_login_events,
+        CLEAR_LOGINS_SERVICE=clear_login_events,
         LOGIN_EVENTS_APP_ROLE=os.environ.get("LOGIN_EVENTS_API_APP_ROLE", LOGIN_EVENTS_APP_ROLE).strip()
         or LOGIN_EVENTS_APP_ROLE,
+        CLEAR_LOGINS_APP_ROLE=os.environ.get("CLEAR_LOGINS_APP_ROLE", CLEAR_LOGINS_APP_ROLE).strip()
+        or CLEAR_LOGINS_APP_ROLE,
     )
 
     if test_config:
@@ -121,8 +125,24 @@ def create_app(test_config=None):
             current_user=user,
             login_rows=rows,
             api_logins_url=url_for("api_logins"),
+            clear_logins_url=url_for("clear_logins"),
+            clear_logins_allowed=_can_clear_logins(user),
             page_loaded_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
         )
+
+    @app.post("/dashboard/logins/clear")
+    def clear_logins():
+        authorization_error = _authorize_clear_logins(g.current_principal)
+        if authorization_error is not None:
+            return authorization_error
+
+        try:
+            current_app.config["CLEAR_LOGINS_SERVICE"]()
+        except Exception:
+            current_app.logger.exception("Failed to clear login events.")
+            return _server_error_response()
+
+        return redirect(url_for("dashboard"))
 
     @app.get("/healthz")
     def healthz():
@@ -315,6 +335,20 @@ def load_login_events(_user):
         return rows
 
 
+def clear_login_events():
+    with closing(open_sql_connection()) as connection:
+        ensure_schema(connection)
+
+        try:
+            with closing(connection.cursor()) as cursor:
+                cursor.execute("DELETE FROM dbo.user_logins")
+        except Exception:
+            current_app.logger.exception("Failed to clear login audit rows.")
+            raise
+
+        connection.commit()
+
+
 def check_database_health():
     try:
         with closing(open_sql_connection()) as connection:
@@ -340,6 +374,27 @@ def _authorize_login_events_api(principal):
         required_role,
     )
     return _json_error_response("insufficient_role", 403)
+
+
+def _can_clear_logins(principal):
+    required_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+    return principal["principal_type"] == "user" and required_role in principal["roles"]
+
+
+def _authorize_clear_logins(principal):
+    if principal["principal_type"] != "user":
+        return _forbidden_response("user_principal_required")
+
+    if _can_clear_logins(principal):
+        return None
+
+    required_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+    current_app.logger.warning(
+        "User principal %s is missing required role %s for /dashboard/logins/clear.",
+        principal.get("aad_object_id"),
+        required_role,
+    )
+    return _forbidden_response("insufficient_role")
 
 
 def ensure_schema(connection):
