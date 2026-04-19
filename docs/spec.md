@@ -492,6 +492,7 @@ The effective connection settings must include:
 - App Service Authentication must be enabled.
 - Unauthenticated requests must be redirected to sign-in.
 - The site must use the Microsoft provider as the default sign-in provider.
+- The Easy Auth app registration must explicitly request the Microsoft Graph delegated permissions `openid`, `profile`, and `email`.
 - The App Service app registration must expose an Application ID URI that daemon clients can request with `/.default`.
 - The App Service Authentication configuration must accept the Application ID URI as an allowed audience.
 

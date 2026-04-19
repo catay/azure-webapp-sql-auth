@@ -177,6 +177,7 @@ https://<webapp-name>.azurewebsites.net/api/logins
 ## Notes
 
 - The generated app registration is single-tenant (`AzureADMyOrg`) to match the current sample.
+- The generated Easy Auth app registration explicitly requests the Microsoft Graph delegated scopes `openid`, `profile`, and `email`.
 - The web app is configured for HTTPS-only and Easy Auth redirects unauthenticated users to Microsoft Entra sign-in.
 - `/healthz` is excluded from the Easy Auth redirect so platform health checks can reach it anonymously.
 - The web app uses its system-assigned managed identity to resolve the Easy Auth client secret from Key Vault.

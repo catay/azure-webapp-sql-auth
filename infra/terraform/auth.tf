@@ -5,6 +5,25 @@ resource "azuread_application" "easy_auth" {
   display_name     = local.aad_app_name
   sign_in_audience = "AzureADMyOrg"
 
+  required_resource_access {
+    resource_app_id = data.azuread_application_published_app_ids.well_known.result["MicrosoftGraph"]
+
+    resource_access {
+      id   = data.azuread_service_principal.msgraph.oauth2_permission_scope_ids["openid"]
+      type = "Scope"
+    }
+
+    resource_access {
+      id   = data.azuread_service_principal.msgraph.oauth2_permission_scope_ids["profile"]
+      type = "Scope"
+    }
+
+    resource_access {
+      id   = data.azuread_service_principal.msgraph.oauth2_permission_scope_ids["email"]
+      type = "Scope"
+    }
+  }
+
   app_role {
     allowed_member_types = ["User"]
     description          = "Allows assigned users or groups to clear dashboard login rows."
