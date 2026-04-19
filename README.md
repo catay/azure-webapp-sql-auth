@@ -102,6 +102,7 @@ Then choose one secret source:
 - Fallback: `CLIENT_SECRET`
 
 When Key Vault variables are provided, the script reads the daemon secret from Key Vault with the current Azure CLI login.
+The script now waits for the app to report healthy before calling `GET /api/logins`; override `HEALTH_URL` if it cannot be derived from `API_URL`, and tune `HEALTH_MAX_ATTEMPTS`, `HEALTH_RETRY_SECONDS`, `HEALTH_CONNECT_TIMEOUT_SECONDS`, or `HEALTH_TIMEOUT_SECONDS` if your App Service or database regularly needs a longer warm-up window.
 
 ## Validation
 

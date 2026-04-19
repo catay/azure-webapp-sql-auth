@@ -4,7 +4,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 API_PATH="${API_PATH:-/api/logins}"
+HEALTH_PATH="${HEALTH_PATH:-/healthz}"
 ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/deploy.env}"
+HEALTH_MAX_ATTEMPTS="${HEALTH_MAX_ATTEMPTS:-20}"
+HEALTH_RETRY_SECONDS="${HEALTH_RETRY_SECONDS:-15}"
+HEALTH_CONNECT_TIMEOUT_SECONDS="${HEALTH_CONNECT_TIMEOUT_SECONDS:-10}"
+HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-30}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -16,6 +21,55 @@ require_cmd() {
 require_cmd jq
 require_cmd curl
 require_cmd python
+
+resolve_health_url() {
+  if [[ -n "${HEALTH_URL:-}" ]]; then
+    printf '%s\n' "${HEALTH_URL}"
+    return 0
+  fi
+
+  if [[ "${API_URL}" == *"${API_PATH}" ]]; then
+    printf '%s%s\n' "${API_URL%"${API_PATH}"}" "${HEALTH_PATH}"
+    return 0
+  fi
+
+  echo "Unable to derive HEALTH_URL from API_URL=${API_URL}." >&2
+  echo "Set HEALTH_URL explicitly or adjust API_PATH/HEALTH_PATH." >&2
+  exit 1
+}
+
+wait_for_health() {
+  local attempt curl_exit http_code status
+
+  for ((attempt = 1; attempt <= HEALTH_MAX_ATTEMPTS; attempt += 1)); do
+    curl_exit=0
+    http_code="$(
+      curl -sS -o /dev/null -w '%{http_code}' \
+        --connect-timeout "${HEALTH_CONNECT_TIMEOUT_SECONDS}" \
+        --max-time "${HEALTH_TIMEOUT_SECONDS}" \
+        "${HEALTH_URL}"
+    )" || curl_exit=$?
+
+    if [[ ${curl_exit} -eq 0 && "${http_code}" == "200" ]]; then
+      echo "Health check passed."
+      return 0
+    fi
+
+    if [[ ${curl_exit} -ne 0 ]]; then
+      status="curl exit ${curl_exit}"
+    else
+      status="HTTP ${http_code}"
+    fi
+
+    if [[ ${attempt} -eq ${HEALTH_MAX_ATTEMPTS} ]]; then
+      echo "Health check failed after ${HEALTH_MAX_ATTEMPTS} attempts (${status})." >&2
+      return 1
+    fi
+
+    echo "Health check attempt ${attempt}/${HEALTH_MAX_ATTEMPTS} returned ${status}; retrying in ${HEALTH_RETRY_SECONDS}s..."
+    sleep "${HEALTH_RETRY_SECONDS}"
+  done
+}
 
 if [[ -f "${ENV_FILE}" ]]; then
   set -a
@@ -43,10 +97,16 @@ if [ -z "${CLIENT_ID}" ] || [ -z "${CLIENT_SECRET}" ] || [ "${CLIENT_ID}" = "nul
   exit 1
 fi
 
+HEALTH_URL="$(resolve_health_url)"
+
 echo "Tenant ID: $TENANT_ID"
 echo "Client ID: $CLIENT_ID"
 echo "Scope: $SCOPE"
 echo "API URL: $API_URL"
+echo "Health URL: $HEALTH_URL"
+echo
+echo "Waiting for health endpoint..."
+wait_for_health
 echo
 echo "Requesting access token..."
 
