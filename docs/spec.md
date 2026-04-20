@@ -125,6 +125,7 @@ These values are part of the implementation contract:
 - The web app must use its system-assigned managed identity to resolve Key Vault references.
 - The web app managed identity must be assigned the `Key Vault Secrets User` role on the vault.
 - The identity that provisions or rotates secrets must be assigned a write-capable Key Vault data-plane role such as `Key Vault Secrets Officer` or `Key Vault Administrator`.
+- Automated teardown must purge the soft-deleted Azure Key Vault so `terraform destroy` fully removes the vault instead of leaving it recoverable for the retention window.
 
 ### App Service hosting assumptions
 

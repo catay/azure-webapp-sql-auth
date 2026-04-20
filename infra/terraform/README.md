@@ -195,5 +195,6 @@ https://<webapp-name>.azurewebsites.net/api/logins
 - The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is stored as an App Service Key Vault reference rather than a raw secret value.
 - Terraform waits briefly for Key Vault RBAC propagation before creating secrets because data-plane permissions are not always effective immediately.
 - Terraform still sees generated secret values because it creates the app-registration passwords before writing them into Key Vault.
+- `terraform destroy` is configured to purge the soft-deleted Key Vault so the vault is fully removed instead of remaining recoverable for the retention window.
 - Daemon authorization for `GET /api/logins` is still enforced in Flask because the sample site also hosts interactive browser routes.
 - The SQL server uses Microsoft Entra-only authentication and does not provision a SQL admin login.
