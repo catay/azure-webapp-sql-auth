@@ -22,7 +22,9 @@ python3 -m venv .venv
 
 ## Terraform Deploy
 
-If you only want the Azure resource deployment and platform configuration, use the Terraform configuration in [infra/terraform](infra/terraform/README.md).
+If you only want the Azure resource deployment and platform configuration, use the modular Terraform layout under `infra/terraform/`.
+
+The current entry point is `infra/terraform/environments/dev`, which calls the reusable `infra/terraform/modules/app-stack` module.
 
 That Terraform path provisions:
 
@@ -43,17 +45,22 @@ The generated Easy Auth and daemon client secrets are stored in Azure Key Vault.
 The Terraform deployment configures the vault in Azure RBAC mode, grants the web app managed identity the `Key Vault Secrets User` role for secret reads, and grants the identity running `terraform apply` the `Key Vault Secrets Officer` role so Terraform can write the generated secrets.
 Terraform can also define a baseline `dashboard_read` user app role, optionally assign an existing Microsoft Entra security group to that role by object ID, and separately assign the `clear_login_events` admin role to a narrower group.
 
-After `terraform apply`, you can generate a ready-to-copy env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh):
+Initialize and apply from the dev environment wrapper:
 
 ```bash
-terraform -chdir=infra/terraform output -raw scripts_deploy_env > scripts/deploy.env
+terraform -chdir=infra/terraform/environments/dev init
+terraform -chdir=infra/terraform/environments/dev apply
 ```
+
+Keep generic environment values such as `name` and `environment` in `infra/terraform/environments/dev/terraform.tfvars`. Put environment-specific values such as object IDs, firewall IPs, and similar potentially confidential overrides in `infra/terraform/environments/dev/dev.auto.tfvars`. The `dev.auto.tfvars` file is intentionally local-only and should not be committed.
+
+During `terraform apply`, the environment wrapper writes a ready-to-use env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh) at `infra/terraform/environments/dev/dev.env`.
 
 ## App-Only Deploy
 
 If the infrastructure already exists and you only want to push a new Flask app package, use [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh).
 
-It reuses `scripts/deploy.env` if present, but only requires:
+Pass the generated env file either as the first argument or through `ENV_FILE`. The script requires:
 
 - `RG`
 - `WEBAPP_NAME`
@@ -63,7 +70,7 @@ By default it uses your current Azure CLI login session. Set `AZURE_CONFIG_DIR` 
 Example:
 
 ```bash
-./scripts/deploy_app_only.sh
+./scripts/deploy_app_only.sh ./infra/terraform/environments/dev/dev.env
 ```
 
 ## Required Post-Provision SQL Step
@@ -83,10 +90,10 @@ Replace `<webapp-name>` with the actual App Service name, which is also the expe
 
 ## Daemon API Testing
 
-Generate `scripts/deploy.env` from Terraform output if needed:
+Pass the generated `infra/terraform/environments/dev/dev.env` file as the first argument, or set `ENV_FILE` if you want to point the script at a different environment file:
 
 ```bash
-terraform -chdir=infra/terraform output -raw scripts_deploy_env > scripts/deploy.env
+./scripts/test_daemon_api.sh ./infra/terraform/environments/dev/dev.env
 ```
 
 For `scripts/test_daemon_api.sh`, set:

@@ -3,16 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/deploy.env}"
 AZURE_CONFIG_DIR="${AZURE_CONFIG_DIR:-}"
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/deploy_app_only.sh
-  ENV_FILE=./scripts/deploy.env ./scripts/deploy_app_only.sh
+  ./scripts/deploy_app_only.sh <env-file>
+  ENV_FILE=./infra/terraform/environments/dev/dev.env ./scripts/deploy_app_only.sh
 
 Required environment variables:
+  ENV_FILE
   RG
   WEBAPP_NAME
 
@@ -25,14 +25,30 @@ This script only creates the ZIP deployment package and deploys it to an
 existing Azure App Service web app. It does not provision or reconfigure Azure
 resources, authentication, identities, or database settings.
 
-If ENV_FILE exists, the script loads it automatically and exports the variables
-defined there before validating the required configuration.
+ENV_FILE must point to a non-empty file. You can pass it as the first argument
+or by setting the ENV_FILE environment variable.
 EOF
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
+fi
+
+if [[ $# -gt 1 ]]; then
+  echo "Unexpected arguments." >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ $# -eq 1 ]]; then
+  ENV_FILE="$1"
+elif [[ -n "${ENV_FILE:-}" ]]; then
+  ENV_FILE="${ENV_FILE}"
+else
+  echo "Missing required ENV_FILE." >&2
+  usage >&2
+  exit 1
 fi
 
 require_env() {
@@ -58,12 +74,16 @@ log() {
 require_command az
 require_command zip
 
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
+if [[ ! -f "${ENV_FILE}" || ! -s "${ENV_FILE}" ]]; then
+  echo "ENV_FILE must exist and be non-empty: ${ENV_FILE}" >&2
+  usage >&2
+  exit 1
 fi
+
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
 
 if [[ -n "${AZURE_CONFIG_DIR}" ]]; then
   mkdir -p "${AZURE_CONFIG_DIR}"

@@ -571,19 +571,91 @@ Minimum behavior:
 
 ## 14. File Structure Expectation
 
-The implementation can remain small. A recommended structure is:
+The repository should remain small, but it is expected to include the Flask app, tests, scripts, and the modular Terraform layout. A recommended structure is:
 
 ```text
 .
 ├── app.py
+├── infra/
+│   └── terraform/
+│       ├── modules/
+│       │   └── app-stack/
+│       │       ├── app_service.tf
+│       │       ├── auth.tf
+│       │       ├── core.tf
+│       │       ├── data.tf
+│       │       ├── key_vault.tf
+│       │       ├── locals.tf
+│       │       ├── outputs.tf
+│       │       ├── random.tf
+│       │       ├── sql.tf
+│       │       ├── variables.tf
+│       │       ├── versions.tf
+│       │       └── README.md
+│       └── environments/
+│           └── dev/
+│               ├── main.tf
+│               ├── terraform.tfvars
+│               └── dev.auto.tfvars
 ├── requirements.txt
+├── scripts/
+│   ├── create_webapp_managed_identity_db_user.sh
+│   ├── deploy_app_only.sh
+│   └── test_daemon_api.sh
 ├── templates/
 │   └── dashboard.html
+├── tests/
+│   └── test_app.py
 └── docs/
     └── spec.md
 ```
 
 If the implementing agent prefers a small `db.py` or `auth.py` helper module, that is acceptable, but not required.
+
+### Terraform Layout Requirements
+
+The Terraform implementation should use a reusable module and environment-specific entry points:
+
+- The reusable module must live at `infra/terraform/modules/app-stack`.
+- The current environment entry point must live at `infra/terraform/environments/dev/main.tf`.
+- Generic environment values for that entry point must be stored in `infra/terraform/environments/dev/terraform.tfvars`.
+- Environment-specific values such as object IDs, firewall IPs, and similar potentially confidential overrides must be stored in `infra/terraform/environments/dev/dev.auto.tfvars`.
+- `<environment>.auto.tfvars` files are local-only inputs and must not be committed.
+- Additional environments such as `staging` and `prod` may be added later by following the same directory pattern.
+
+The `app-stack` module must preserve the current infrastructure behavior while improving modularity and maintainability:
+
+- The required module inputs are `name` and `environment`.
+- Other module inputs should remain optional where reasonable.
+- The intended module defaults are:
+  - `app_plan_sku = "F1"`
+  - `python_version = "3.12"`
+  - `sql_db_edition = "GeneralPurpose"`
+  - `sql_db_family = "Gen5"`
+  - `sql_db_capacity = 2`
+  - `sql_db_compute_model = "Serverless"`
+  - `sql_db_auto_pause_delay = 60`
+  - `sql_db_backup_redundancy = "Local"`
+  - `sql_db_free_limit_exhaustion_behavior = "AutoPause"`
+  - `create_webapp_managed_identity_db_user = true`
+- The following inputs must remain optional without baked-in defaults and, when used, must be defined explicitly in the environment `<environment>.auto.tfvars` file:
+  - `clear_logins_admin_group_object_id`
+  - `dashboard_read_group_object_id`
+  - `sql_firewall_allowed_ipv4_addresses`
+
+Terraform resource naming must follow a consistent stack-oriented convention:
+
+- Resource names must be derived from `name` and `environment`.
+- A shared Terraform `random_id` suffix must be used across the full deployment stack.
+- The naming pattern must be `<prefix>-<name>-<environment>-<random>`, for example `rg-<name>-<environment>-<random>`, `sql-<name>-<environment>-<random>`, and `app-<name>-<environment>-<random>`.
+- Every resource name must include the random suffix.
+
+Terraform must also generate an environment file for downstream scripts:
+
+- The generated file path must be `infra/terraform/environments/<environment>/<environment>.env`, for example `infra/terraform/environments/dev/dev.env`.
+- That file must be generated during `terraform apply`, for example through a `local_file` resource.
+- It should contain only the subset of values required by the operational scripts such as `scripts/deploy_app_only.sh` and `scripts/test_daemon_api.sh`.
+- The old `scripts/deploy.env` convention should not be used.
 
 ## 15. Delivery Plan
 
@@ -1032,6 +1104,8 @@ Implementation note:
 - If `WITH OBJECT_ID` is not used, the contained user name should match the App Service managed identity service principal display name as resolved in Microsoft Entra.
 - In this repository, `infra/terraform` may optionally automate this step with a `local-exec` helper when `create_webapp_managed_identity_db_user = true`. That helper still requires the `terraform apply` host to have `sqlcmd`, network access to the SQL endpoint, and a Microsoft Entra-authenticated SQL admin context.
 - When that Terraform helper is enabled, the SQL server firewall must also allow the public egress IP of the `terraform apply` host. `AllowAzureServices` only covers Azure-originated traffic and does not cover a workstation or external runner. The Terraform configuration exposes `sql_firewall_allowed_ipv4_addresses` for this purpose.
+- The preferred Terraform entry point is `infra/terraform/environments/dev`, which calls the reusable `infra/terraform/modules/app-stack` module.
+- The environment wrapper should generate `infra/terraform/environments/dev/dev.env` during `terraform apply` so operational scripts can consume the deployment values without a separate redirection step.
 
 ### 16.15 Validate the deployment
 

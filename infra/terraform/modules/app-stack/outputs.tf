@@ -162,7 +162,7 @@ output "daemon_token_request_example" {
 }
 
 output "scripts_deploy_env" {
-  description = "Copy this into scripts/deploy.env for deploy_app_only.sh and test_daemon_api.sh."
+  description = "Shell environment content for deploy_app_only.sh and test_daemon_api.sh."
   value       = <<-EOT
     RG="${azurerm_resource_group.main.name}"
     WEBAPP_NAME="${azurerm_linux_web_app.main.name}"

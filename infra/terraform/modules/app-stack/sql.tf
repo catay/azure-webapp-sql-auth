@@ -1,5 +1,5 @@
 resource "azurerm_mssql_server" "main" {
-  name                          = var.sql_server_name
+  name                          = local.sql_server_name
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
   version                       = "12.0"
@@ -24,7 +24,7 @@ resource "azurerm_mssql_server" "main" {
 
 resource "azapi_resource" "sql_database" {
   type      = "Microsoft.Sql/servers/databases@2023-08-01"
-  name      = var.sql_db_name
+  name      = local.sql_db_name
   parent_id = azurerm_mssql_server.main.id
   location  = azurerm_resource_group.main.location
   tags      = local.tags
@@ -79,7 +79,7 @@ resource "terraform_data" "webapp_managed_identity_db_user" {
   }
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/../../scripts/create_webapp_managed_identity_db_user.sh"
+    command = "bash ${abspath("${path.module}/../../../../scripts/create_webapp_managed_identity_db_user.sh")}"
     environment = {
       SQL_SERVER_FQDN            = azurerm_mssql_server.main.fully_qualified_domain_name
       SQL_DATABASE_NAME          = azapi_resource.sql_database.name

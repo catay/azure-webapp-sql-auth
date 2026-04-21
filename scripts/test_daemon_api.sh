@@ -3,13 +3,53 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 API_PATH="${API_PATH:-/api/logins}"
 HEALTH_PATH="${HEALTH_PATH:-/healthz}"
-ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/deploy.env}"
 HEALTH_MAX_ATTEMPTS="${HEALTH_MAX_ATTEMPTS:-20}"
 HEALTH_RETRY_SECONDS="${HEALTH_RETRY_SECONDS:-15}"
 HEALTH_CONNECT_TIMEOUT_SECONDS="${HEALTH_CONNECT_TIMEOUT_SECONDS:-10}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-30}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/test_daemon_api.sh <env-file>
+  ENV_FILE=./infra/terraform/environments/dev/dev.env ./scripts/test_daemon_api.sh
+
+Required environment variables:
+  ENV_FILE
+  TENANT_ID
+  CLIENT_ID
+  SCOPE
+  TOKEN_URL
+  API_URL
+
+ENV_FILE must point to a non-empty file. You can pass it as the first argument
+or by setting the ENV_FILE environment variable.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -gt 1 ]]; then
+  echo "Unexpected arguments." >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ $# -eq 1 ]]; then
+  ENV_FILE="$1"
+elif [[ -n "${ENV_FILE:-}" ]]; then
+  ENV_FILE="${ENV_FILE}"
+else
+  echo "Missing required ENV_FILE." >&2
+  usage >&2
+  exit 1
+fi
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -17,10 +57,6 @@ require_cmd() {
     exit 1
   fi
 }
-
-require_cmd jq
-require_cmd curl
-require_cmd python
 
 resolve_health_url() {
   if [[ -n "${HEALTH_URL:-}" ]]; then
@@ -71,12 +107,20 @@ wait_for_health() {
   done
 }
 
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
+require_cmd jq
+require_cmd curl
+require_cmd python
+
+if [[ ! -f "${ENV_FILE}" || ! -s "${ENV_FILE}" ]]; then
+  echo "ENV_FILE must exist and be non-empty: ${ENV_FILE}" >&2
+  usage >&2
+  exit 1
 fi
+
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
 
 CLIENT_ID="${CLIENT_ID:-}"
 CLIENT_SECRET="${CLIENT_SECRET:-}"

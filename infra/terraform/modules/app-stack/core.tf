@@ -1,11 +1,11 @@
 resource "azurerm_resource_group" "main" {
-  name     = var.rg
+  name     = local.resource_group_name
   location = var.location
   tags     = local.tags
 }
 
 resource "azurerm_service_plan" "main" {
-  name                = var.app_plan
+  name                = local.app_plan_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   os_type             = "Linux"

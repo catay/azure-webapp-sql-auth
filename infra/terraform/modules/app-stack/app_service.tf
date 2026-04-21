@@ -1,5 +1,5 @@
 resource "azurerm_linux_web_app" "main" {
-  name                = var.webapp_name
+  name                = local.webapp_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   service_plan_id     = azurerm_service_plan.main.id
@@ -26,7 +26,7 @@ resource "azurerm_linux_web_app" "main" {
     LOGIN_EVENTS_API_APP_ROLE                = local.login_events_api_app_role
     MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = "@Microsoft.KeyVault(VaultName=${local.key_vault_name};SecretName=${local.easy_auth_secret_name})"
     SCM_DO_BUILD_DURING_DEPLOYMENT           = "true"
-    SQL_DATABASE_NAME                        = var.sql_db_name
+    SQL_DATABASE_NAME                        = local.sql_db_name
     SQL_SERVER_NAME                          = azurerm_mssql_server.main.fully_qualified_domain_name
   }
 
