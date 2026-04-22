@@ -18,7 +18,7 @@ Use `unittest` with test files named `test_*.py` and descriptive `unittest.TestC
 
 ## Commit & Pull Request Guidelines
 
-Recent history follows Conventional Commit prefixes like `feat:` and `fix:`; keep subjects short and imperative, for example `fix: handle missing app role`. Pull requests should describe the behavior change, note any Azure or SQL impact, list verification steps, and link the relevant issue if one exists. Include screenshots only for dashboard/template changes.
+Use Conventional Commits for all commit messages in the format `<type>(optional scope): <short summary>`. Keep the summary imperative and concise, targeting a maximum of roughly 72 characters. Separate the body from the summary with a blank line and use short bullet points to describe the meaningful changes included in the commit. Pull requests should describe the behavior change, note any Azure or SQL impact, list verification steps, and link the relevant issue if one exists. Include screenshots only for dashboard/template changes.
 
 ## Security & Configuration Tips
 
