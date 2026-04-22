@@ -58,19 +58,19 @@ output "dashboard_read_group_object_id" {
   value       = var.dashboard_read_group_object_id
 }
 
-output "clear_logins_app_role" {
+output "dashboard_write_app_role" {
   description = "User app role required to clear dashboard login rows."
-  value       = var.clear_logins_app_role
+  value       = var.dashboard_write_app_role
 }
 
-output "clear_logins_admin_group_object_id" {
-  description = "Configured external security group object ID assigned to the clear-logins role, if any."
-  value       = var.clear_logins_admin_group_object_id
+output "dashboard_write_group_object_id" {
+  description = "Configured external security group object ID assigned to the dashboard-write role, if any."
+  value       = var.dashboard_write_group_object_id
 }
 
-output "login_events_api_app_role" {
+output "api_read_app_role" {
   description = "Application role required for daemon access to GET /api/logins."
-  value       = var.login_events_api_app_role
+  value       = var.api_read_app_role
 }
 
 output "daemon_client_id" {

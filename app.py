@@ -19,8 +19,8 @@ MAX_RECENT_LOGINS = 50
 SQL_CONNECT_TIMEOUT_SECONDS = 30
 SQL_CONNECT_RETRIES = 2
 SQL_CONNECT_RETRY_DELAY_SECONDS = 10
-LOGIN_EVENTS_APP_ROLE = "read_login_events"
-CLEAR_LOGINS_APP_ROLE = "clear_login_events"
+API_READ_APP_ROLE = "api_read"
+DASHBOARD_WRITE_APP_ROLE = "dashboard_write"
 DASHBOARD_READ_APP_ROLE = "dashboard_read"
 SCHEMA_SQL = """
 IF NOT EXISTS (
@@ -77,10 +77,12 @@ def create_app(test_config=None):
         CLEAR_LOGINS_SERVICE=clear_login_events,
         DASHBOARD_READ_APP_ROLE=os.environ.get("DASHBOARD_READ_APP_ROLE", DASHBOARD_READ_APP_ROLE).strip()
         or DASHBOARD_READ_APP_ROLE,
-        LOGIN_EVENTS_APP_ROLE=os.environ.get("LOGIN_EVENTS_API_APP_ROLE", LOGIN_EVENTS_APP_ROLE).strip()
-        or LOGIN_EVENTS_APP_ROLE,
-        CLEAR_LOGINS_APP_ROLE=os.environ.get("CLEAR_LOGINS_APP_ROLE", CLEAR_LOGINS_APP_ROLE).strip()
-        or CLEAR_LOGINS_APP_ROLE,
+        API_READ_APP_ROLE=os.environ.get("API_READ_APP_ROLE", API_READ_APP_ROLE).strip()
+        or API_READ_APP_ROLE,
+        DASHBOARD_WRITE_APP_ROLE=os.environ.get(
+            "DASHBOARD_WRITE_APP_ROLE", DASHBOARD_WRITE_APP_ROLE
+        ).strip()
+        or DASHBOARD_WRITE_APP_ROLE,
     )
 
     if test_config:
@@ -370,16 +372,16 @@ def _authorize_login_events_api(principal):
             return None
 
         dashboard_read_role = current_app.config["DASHBOARD_READ_APP_ROLE"]
-        clear_logins_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+        dashboard_write_role = current_app.config["DASHBOARD_WRITE_APP_ROLE"]
         current_app.logger.warning(
             "User principal %s is missing required role %s or %s for /api/logins.",
             principal.get("aad_object_id"),
             dashboard_read_role,
-            clear_logins_role,
+            dashboard_write_role,
         )
         return _json_error_response("insufficient_role", 403)
 
-    required_role = current_app.config["LOGIN_EVENTS_APP_ROLE"]
+    required_role = current_app.config["API_READ_APP_ROLE"]
     if required_role in principal["roles"]:
         return None
 
@@ -393,9 +395,9 @@ def _authorize_login_events_api(principal):
 
 def _can_read_dashboard(principal):
     dashboard_read_role = current_app.config["DASHBOARD_READ_APP_ROLE"]
-    clear_logins_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+    dashboard_write_role = current_app.config["DASHBOARD_WRITE_APP_ROLE"]
     return principal["principal_type"] == "user" and (
-        dashboard_read_role in principal["roles"] or clear_logins_role in principal["roles"]
+        dashboard_read_role in principal["roles"] or dashboard_write_role in principal["roles"]
     )
 
 
@@ -407,18 +409,18 @@ def _authorize_dashboard(principal):
         return None
 
     dashboard_read_role = current_app.config["DASHBOARD_READ_APP_ROLE"]
-    clear_logins_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+    dashboard_write_role = current_app.config["DASHBOARD_WRITE_APP_ROLE"]
     current_app.logger.warning(
         "User principal %s is missing required role %s or %s for /dashboard.",
         principal.get("aad_object_id"),
         dashboard_read_role,
-        clear_logins_role,
+        dashboard_write_role,
     )
     return _forbidden_response("insufficient_role")
 
 
 def _can_clear_logins(principal):
-    required_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+    required_role = current_app.config["DASHBOARD_WRITE_APP_ROLE"]
     return principal["principal_type"] == "user" and required_role in principal["roles"]
 
 
@@ -429,7 +431,7 @@ def _authorize_clear_logins(principal):
     if _can_clear_logins(principal):
         return None
 
-    required_role = current_app.config["CLEAR_LOGINS_APP_ROLE"]
+    required_role = current_app.config["DASHBOARD_WRITE_APP_ROLE"]
     current_app.logger.warning(
         "User principal %s is missing required role %s for /dashboard/logins/clear.",
         principal.get("aad_object_id"),

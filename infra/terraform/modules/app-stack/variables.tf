@@ -169,10 +169,10 @@ variable "aad_app_identifier_uri" {
   nullable    = true
 }
 
-variable "login_events_api_app_role" {
+variable "api_read_app_role" {
   description = "Application role value required for daemon access to GET /api/logins."
   type        = string
-  default     = "read_login_events"
+  default     = "api_read"
 }
 
 variable "dashboard_read_app_role" {
@@ -188,14 +188,14 @@ variable "dashboard_read_group_object_id" {
   nullable    = true
 }
 
-variable "clear_logins_app_role" {
+variable "dashboard_write_app_role" {
   description = "User app role value required to clear dashboard login rows."
   type        = string
-  default     = "clear_login_events"
+  default     = "dashboard_write"
 }
 
-variable "clear_logins_admin_group_object_id" {
-  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the clear-logins user role."
+variable "dashboard_write_group_object_id" {
+  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-write user role."
   type        = string
   default     = null
   nullable    = true

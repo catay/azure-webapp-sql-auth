@@ -68,11 +68,11 @@ module "app_stack" {
   aad_app_name                                  = var.aad_app_name
   aad_app_redirect_uri                          = var.aad_app_redirect_uri
   aad_app_identifier_uri                        = var.aad_app_identifier_uri
-  login_events_api_app_role                     = var.login_events_api_app_role
+  api_read_app_role                             = var.api_read_app_role
   dashboard_read_app_role                       = var.dashboard_read_app_role
   dashboard_read_group_object_id                = var.dashboard_read_group_object_id
-  clear_logins_app_role                         = var.clear_logins_app_role
-  clear_logins_admin_group_object_id            = var.clear_logins_admin_group_object_id
+  dashboard_write_app_role                      = var.dashboard_write_app_role
+  dashboard_write_group_object_id               = var.dashboard_write_group_object_id
   create_daemon_client                          = var.create_daemon_client
   daemon_client_name                            = var.daemon_client_name
   daemon_client_secret_end_date_relative        = var.daemon_client_secret_end_date_relative
@@ -248,10 +248,10 @@ variable "aad_app_identifier_uri" {
   nullable    = true
 }
 
-variable "login_events_api_app_role" {
+variable "api_read_app_role" {
   description = "Application role value required for daemon access to GET /api/logins."
   type        = string
-  default     = "read_login_events"
+  default     = "api_read"
 }
 
 variable "dashboard_read_app_role" {
@@ -267,14 +267,14 @@ variable "dashboard_read_group_object_id" {
   nullable    = true
 }
 
-variable "clear_logins_app_role" {
+variable "dashboard_write_app_role" {
   description = "User app role value required to clear dashboard login rows."
   type        = string
-  default     = "clear_login_events"
+  default     = "dashboard_write"
 }
 
-variable "clear_logins_admin_group_object_id" {
-  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the clear-logins user role."
+variable "dashboard_write_group_object_id" {
+  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-write user role."
   type        = string
   default     = null
   nullable    = true

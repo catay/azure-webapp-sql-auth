@@ -1,6 +1,6 @@
 resource "random_uuid" "dashboard_read_app_role" {}
-resource "random_uuid" "login_events_api_app_role" {}
-resource "random_uuid" "clear_logins_app_role" {}
+resource "random_uuid" "api_read_app_role" {}
+resource "random_uuid" "dashboard_write_app_role" {}
 
 resource "azuread_application" "easy_auth" {
   display_name     = local.aad_app_name
@@ -25,36 +25,10 @@ resource "azuread_application" "easy_auth" {
     }
   }
 
-  app_role {
-    allowed_member_types = ["User"]
-    description          = "Allows assigned users or groups to view the dashboard and read login events."
-    display_name         = "Dashboard Read"
-    enabled              = true
-    id                   = random_uuid.dashboard_read_app_role.result
-    value                = local.dashboard_read_app_role
-  }
-
-  app_role {
-    allowed_member_types = ["User"]
-    description          = "Allows assigned users or groups to clear dashboard login rows."
-    display_name         = "Clear Login Events"
-    enabled              = true
-    id                   = random_uuid.clear_logins_app_role.result
-    value                = local.clear_logins_app_role
-  }
-
-  app_role {
-    allowed_member_types = ["Application"]
-    description          = "Allows daemon apps to read login events from the Flask API."
-    display_name         = "Read Login Events"
-    enabled              = true
-    id                   = random_uuid.login_events_api_app_role.result
-    value                = local.login_events_api_app_role
-  }
-
   lifecycle {
     ignore_changes = [
       identifier_uris,
+      app_role,
     ]
   }
 
@@ -65,6 +39,33 @@ resource "azuread_application" "easy_auth" {
       id_token_issuance_enabled = true
     }
   }
+}
+
+resource "azuread_application_app_role" "dashboard_read" {
+  application_id       = azuread_application.easy_auth.id
+  role_id              = random_uuid.dashboard_read_app_role.result
+  allowed_member_types = ["User"]
+  description          = "Allows assigned users or groups to view the dashboard and read login events."
+  display_name         = "Dashboard Read"
+  value                = local.dashboard_read_app_role
+}
+
+resource "azuread_application_app_role" "dashboard_write" {
+  application_id       = azuread_application.easy_auth.id
+  role_id              = random_uuid.dashboard_write_app_role.result
+  allowed_member_types = ["User"]
+  description          = "Allows assigned users or groups to clear dashboard login rows."
+  display_name         = "Dashboard Write"
+  value                = local.dashboard_write_app_role
+}
+
+resource "azuread_application_app_role" "api_read" {
+  application_id       = azuread_application.easy_auth.id
+  role_id              = random_uuid.api_read_app_role.result
+  allowed_member_types = ["Application"]
+  description          = "Allows daemon apps to read login events from the Flask API."
+  display_name         = "API Read"
+  value                = local.api_read_app_role
 }
 
 resource "azuread_application_identifier_uri" "easy_auth" {
@@ -111,32 +112,32 @@ resource "azuread_application_password" "daemon_client" {
   end_date       = timeadd(time_static.daemon_client_secret_start[0].rfc3339, var.daemon_client_secret_end_date_relative)
 }
 
-resource "azuread_application_api_access" "daemon_client_login_events" {
+resource "azuread_application_api_access" "daemon_client_api_read" {
   count          = var.create_daemon_client ? 1 : 0
   application_id = azuread_application.daemon_client[0].id
   api_client_id  = azuread_application.easy_auth.client_id
   role_ids = [
-    azuread_application.easy_auth.app_role_ids[local.login_events_api_app_role],
+    azuread_application_app_role.api_read.role_id,
   ]
 }
 
-resource "azuread_app_role_assignment" "daemon_client_login_events" {
+resource "azuread_app_role_assignment" "daemon_client_api_read" {
   count               = var.create_daemon_client ? 1 : 0
-  app_role_id         = azuread_application.easy_auth.app_role_ids[local.login_events_api_app_role]
+  app_role_id         = azuread_application_app_role.api_read.role_id
   principal_object_id = azuread_service_principal.daemon_client[0].object_id
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }
 
-resource "azuread_app_role_assignment" "clear_logins_admin_group" {
-  count               = var.clear_logins_admin_group_object_id != null ? 1 : 0
-  app_role_id         = azuread_application.easy_auth.app_role_ids[local.clear_logins_app_role]
-  principal_object_id = var.clear_logins_admin_group_object_id
+resource "azuread_app_role_assignment" "dashboard_write_group" {
+  count               = var.dashboard_write_group_object_id != null ? 1 : 0
+  app_role_id         = azuread_application_app_role.dashboard_write.role_id
+  principal_object_id = var.dashboard_write_group_object_id
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }
 
 resource "azuread_app_role_assignment" "dashboard_read_group" {
   count               = var.dashboard_read_group_object_id != null ? 1 : 0
-  app_role_id         = azuread_application.easy_auth.app_role_ids[local.dashboard_read_app_role]
+  app_role_id         = azuread_application_app_role.dashboard_read.role_id
   principal_object_id = var.dashboard_read_group_object_id
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }

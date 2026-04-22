@@ -20,10 +20,10 @@ resource "azurerm_linux_web_app" "main" {
   }
 
   app_settings = {
-    CLEAR_LOGINS_APP_ROLE                    = local.clear_logins_app_role
+    API_READ_APP_ROLE                        = local.api_read_app_role
     DASHBOARD_READ_APP_ROLE                  = local.dashboard_read_app_role
+    DASHBOARD_WRITE_APP_ROLE                 = local.dashboard_write_app_role
     FLASK_SECRET_KEY                         = local.flask_secret_key
-    LOGIN_EVENTS_API_APP_ROLE                = local.login_events_api_app_role
     MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = "@Microsoft.KeyVault(VaultName=${local.key_vault_name};SecretName=${local.easy_auth_secret_name})"
     SCM_DO_BUILD_DURING_DEPLOYMENT           = "true"
     SQL_DATABASE_NAME                        = local.sql_db_name

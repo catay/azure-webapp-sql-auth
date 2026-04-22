@@ -20,8 +20,8 @@ locals {
   daemon_client_secret_name = "daemon-client-secret"
   flask_secret_key          = coalesce(var.flask_secret_key, random_password.flask_secret_key.result)
   dashboard_read_app_role   = var.dashboard_read_app_role
-  clear_logins_app_role     = var.clear_logins_app_role
-  login_events_api_app_role = var.login_events_api_app_role
+  dashboard_write_app_role  = var.dashboard_write_app_role
+  api_read_app_role         = var.api_read_app_role
   sql_sku_name              = "GP_S_${var.sql_db_family}"
   sql_aad_admin_name = coalesce(
     var.sql_aad_admin_name,

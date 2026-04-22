@@ -299,12 +299,13 @@ class AppRouteTests(unittest.TestCase):
                 "TESTING": True,
                 "SECRET_KEY": "test-secret-key",
                 "TRUST_EASY_AUTH_HEADERS": True,
+                "API_READ_APP_ROLE": "api_read",
                 "DASHBOARD_READ_APP_ROLE": "dashboard_read",
                 "HEALTH_CHECK_SERVICE": self.health_check_service,
                 "DASHBOARD_SERVICE": self.dashboard_service,
                 "LOGIN_EVENTS_SERVICE": self.login_events_service,
                 "CLEAR_LOGINS_SERVICE": self.clear_logins_service,
-                "CLEAR_LOGINS_APP_ROLE": "clear_login_events",
+                "DASHBOARD_WRITE_APP_ROLE": "dashboard_write",
             }
         )
         self.client = self.app.test_client()
@@ -358,7 +359,7 @@ class AppRouteTests(unittest.TestCase):
         with mock.patch.object(app_module, "datetime", mock_datetime):
             response = self.client.get(
                 "/dashboard",
-                headers=principal_headers(roles=["dashboard_read", "clear_login_events"]),
+                headers=principal_headers(roles=["dashboard_read", "dashboard_write"]),
             )
 
         page = response.get_data(as_text=True)
@@ -374,7 +375,7 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("Clear All Logins", page)
         self.assertIn("Page loaded at 2026-04-19 09:15:00 UTC", page)
 
-    def test_dashboard_hides_clear_button_when_reader_lacks_clear_role(self):
+    def test_dashboard_hides_clear_button_when_reader_lacks_write_role(self):
         response = self.client.get("/dashboard", headers=principal_headers(roles=["dashboard_read"]))
 
         page = response.get_data(as_text=True)
@@ -389,10 +390,10 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.get_data(as_text=True), "Forbidden")
 
-    def test_dashboard_allows_clear_role_without_separate_reader_role(self):
+    def test_dashboard_allows_write_role_without_separate_reader_role(self):
         response = self.client.get(
             "/dashboard",
-            headers=principal_headers(roles=["clear_login_events"]),
+            headers=principal_headers(roles=["dashboard_write"]),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -400,7 +401,7 @@ class AppRouteTests(unittest.TestCase):
     def test_dashboard_rejects_application_principals(self):
         response = self.client.get(
             "/dashboard",
-            headers=daemon_principal_headers(roles=["read_login_events"]),
+            headers=daemon_principal_headers(roles=["api_read"]),
         )
 
         self.assertEqual(response.status_code, 403)
@@ -409,7 +410,7 @@ class AppRouteTests(unittest.TestCase):
     def test_clear_logins_redirects_back_to_dashboard_for_authenticated_user(self):
         response = self.client.post(
             "/dashboard/logins/clear",
-            headers=principal_headers(roles=["clear_login_events"]),
+            headers=principal_headers(roles=["dashboard_write"]),
         )
 
         self.assertEqual(response.status_code, 302)
@@ -426,7 +427,7 @@ class AppRouteTests(unittest.TestCase):
     def test_clear_logins_rejects_application_principals(self):
         response = self.client.post(
             "/dashboard/logins/clear",
-            headers=daemon_principal_headers(roles=["read_login_events"]),
+            headers=daemon_principal_headers(roles=["api_read"]),
         )
 
         self.assertEqual(response.status_code, 403)
@@ -485,8 +486,8 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(len(self.login_events_service.calls), 1)
         self.assertEqual(len(self.dashboard_service.calls), 0)
 
-    def test_api_logins_returns_json_events_for_clear_logins_user(self):
-        response = self.client.get("/api/logins", headers=principal_headers(roles=["clear_login_events"]))
+    def test_api_logins_returns_json_events_for_dashboard_write_user(self):
+        response = self.client.get("/api/logins", headers=principal_headers(roles=["dashboard_write"]))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(self.login_events_service.calls), 1)
@@ -500,7 +501,7 @@ class AppRouteTests(unittest.TestCase):
     def test_api_logins_returns_json_events_for_authorized_daemon(self):
         response = self.client.get(
             "/api/logins",
-            headers=daemon_principal_headers(roles=["read_login_events"]),
+            headers=daemon_principal_headers(roles=["api_read"]),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -511,7 +512,7 @@ class AppRouteTests(unittest.TestCase):
     def test_api_logins_accepts_daemon_without_matching_sub_when_no_user_claims_exist(self):
         response = self.client.get(
             "/api/logins",
-            headers=daemon_principal_without_matching_sub_headers(roles=["read_login_events"]),
+            headers=daemon_principal_without_matching_sub_headers(roles=["api_read"]),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -559,7 +560,7 @@ class PrincipalParsingTests(unittest.TestCase):
 
     def test_parse_client_principal_supports_application_principals(self):
         principal = app_module.parse_client_principal(
-            daemon_principal_headers(roles=["read_login_events"])["X-MS-CLIENT-PRINCIPAL"],
+            daemon_principal_headers(roles=["api_read"])["X-MS-CLIENT-PRINCIPAL"],
             {"X-MS-CLIENT-PRINCIPAL-NAME": "Login Events Daemon"},
         )
 
@@ -567,11 +568,11 @@ class PrincipalParsingTests(unittest.TestCase):
         self.assertEqual(principal["client_app_id"], "daemon-client-id")
         self.assertEqual(principal["aad_object_id"], "daemon-object-id")
         self.assertEqual(principal["display_name"], "Login Events Daemon")
-        self.assertEqual(principal["roles"], ["read_login_events"])
+        self.assertEqual(principal["roles"], ["api_read"])
 
     def test_parse_client_principal_treats_appid_without_user_claims_as_application(self):
         principal = app_module.parse_client_principal(
-            daemon_principal_without_matching_sub_headers(roles=["read_login_events"])[
+            daemon_principal_without_matching_sub_headers(roles=["api_read"])[
                 "X-MS-CLIENT-PRINCIPAL"
             ],
             {"X-MS-CLIENT-PRINCIPAL-NAME": "Login Events Daemon"},
