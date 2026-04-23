@@ -68,11 +68,7 @@ module "app_stack" {
   aad_app_name                                  = var.aad_app_name
   aad_app_redirect_uri                          = var.aad_app_redirect_uri
   aad_app_identifier_uri                        = var.aad_app_identifier_uri
-  api_read_app_role                             = var.api_read_app_role
-  dashboard_read_app_role                       = var.dashboard_read_app_role
-  dashboard_read_group_object_id                = var.dashboard_read_group_object_id
-  dashboard_write_app_role                      = var.dashboard_write_app_role
-  dashboard_write_group_object_id               = var.dashboard_write_group_object_id
+  app_role_authorizations                       = var.app_role_authorizations
   create_daemon_client                          = var.create_daemon_client
   daemon_client_name                            = var.daemon_client_name
   daemon_client_secret_end_date_relative        = var.daemon_client_secret_end_date_relative
@@ -248,36 +244,17 @@ variable "aad_app_identifier_uri" {
   nullable    = true
 }
 
-variable "api_read_app_role" {
-  description = "Application role value required for daemon access to GET /api/logins."
-  type        = string
-  default     = "api_read"
-}
-
-variable "dashboard_read_app_role" {
-  description = "User app role value required to view the dashboard and read login events."
-  type        = string
-  default     = "dashboard_read"
-}
-
-variable "dashboard_read_group_object_id" {
-  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-read user role."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "dashboard_write_app_role" {
-  description = "User app role value required to clear dashboard login rows."
-  type        = string
-  default     = "dashboard_write"
-}
-
-variable "dashboard_write_group_object_id" {
-  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-write user role."
-  type        = string
-  default     = null
-  nullable    = true
+variable "app_role_authorizations" {
+  description = "Optional external principal assignments for the fixed app roles."
+  type = object({
+    dashboard_read = optional(object({
+      group_object_ids = optional(list(string), [])
+    }), {})
+    dashboard_write = optional(object({
+      group_object_ids = optional(list(string), [])
+    }), {})
+  })
+  default = {}
 }
 
 variable "create_daemon_client" {

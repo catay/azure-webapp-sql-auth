@@ -43,7 +43,7 @@ It intentionally does not deploy the application package, and it still requires 
 
 The generated Easy Auth and daemon client secrets are stored in Azure Key Vault. The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is configured as an App Service Key Vault reference rather than a raw secret value.
 The Terraform deployment configures the vault in Azure RBAC mode, grants the web app managed identity the `Key Vault Secrets User` role for secret reads, and grants the identity running `terraform apply` the `Key Vault Secrets Officer` role so Terraform can write the generated secrets.
-Terraform can also define a baseline `dashboard_read` user app role, optionally assign an existing Microsoft Entra security group to that role by object ID, and separately assign the `dashboard_write` admin role to a narrower group.
+Terraform defines the fixed `dashboard_read`, `dashboard_write`, and `api_read` app roles from the repository spec. Optional external group assignments for the dashboard roles are configured through the consolidated `app_role_authorizations` object in the environment wrapper inputs.
 
 Initialize and apply from the dev environment wrapper:
 
@@ -53,6 +53,19 @@ terraform -chdir=infra/terraform/environments/dev apply
 ```
 
 Keep generic environment values such as `name` and `environment` in `infra/terraform/environments/dev/terraform.tfvars`. Put environment-specific values such as object IDs, firewall IPs, and similar potentially confidential overrides in `infra/terraform/environments/dev/dev.auto.tfvars`. The `dev.auto.tfvars` file is intentionally local-only and should not be committed.
+
+Example `dev.auto.tfvars` role-assignment override:
+
+```hcl
+app_role_authorizations = {
+  dashboard_read = {
+    group_object_ids = ["00000000-0000-0000-0000-000000000001"]
+  }
+  dashboard_write = {
+    group_object_ids = ["00000000-0000-0000-0000-000000000002"]
+  }
+}
+```
 
 During `terraform apply`, the environment wrapper writes a ready-to-use env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh) at `infra/terraform/environments/dev/dev.env`.
 

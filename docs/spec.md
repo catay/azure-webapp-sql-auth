@@ -639,8 +639,7 @@ The `app-stack` module must preserve the current infrastructure behavior while i
   - `sql_db_free_limit_exhaustion_behavior = "AutoPause"`
   - `create_webapp_managed_identity_db_user = true`
 - The following inputs must remain optional without baked-in defaults and, when used, must be defined explicitly in the environment `<environment>.auto.tfvars` file:
-  - `dashboard_write_group_object_id`
-  - `dashboard_read_group_object_id`
+  - `app_role_authorizations`
   - `sql_firewall_allowed_ipv4_addresses`
 
 Terraform resource naming must follow a consistent stack-oriented convention:

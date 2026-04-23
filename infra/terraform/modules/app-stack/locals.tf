@@ -19,10 +19,20 @@ locals {
   easy_auth_secret_name     = "easy-auth-client-secret"
   daemon_client_secret_name = "daemon-client-secret"
   flask_secret_key          = coalesce(var.flask_secret_key, random_password.flask_secret_key.result)
-  dashboard_read_app_role   = var.dashboard_read_app_role
-  dashboard_write_app_role  = var.dashboard_write_app_role
-  api_read_app_role         = var.api_read_app_role
-  sql_sku_name              = "GP_S_${var.sql_db_family}"
+  dashboard_read_app_role   = "dashboard_read"
+  dashboard_write_app_role  = "dashboard_write"
+  api_read_app_role         = "api_read"
+  app_role_authorizations = merge({
+    dashboard_read = {
+      group_object_ids = []
+    }
+    dashboard_write = {
+      group_object_ids = []
+    }
+  }, var.app_role_authorizations)
+  dashboard_read_group_object_ids  = local.app_role_authorizations.dashboard_read.group_object_ids
+  dashboard_write_group_object_ids = local.app_role_authorizations.dashboard_write.group_object_ids
+  sql_sku_name                     = "GP_S_${var.sql_db_family}"
   sql_aad_admin_name = coalesce(
     var.sql_aad_admin_name,
     try(data.azuread_users.current_sql_admin[0].users[0].display_name, null),

@@ -129,15 +129,15 @@ resource "azuread_app_role_assignment" "daemon_client_api_read" {
 }
 
 resource "azuread_app_role_assignment" "dashboard_write_group" {
-  count               = var.dashboard_write_group_object_id != null ? 1 : 0
+  for_each            = toset(local.dashboard_write_group_object_ids)
   app_role_id         = azuread_application_app_role.dashboard_write.role_id
-  principal_object_id = var.dashboard_write_group_object_id
+  principal_object_id = each.value
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }
 
 resource "azuread_app_role_assignment" "dashboard_read_group" {
-  count               = var.dashboard_read_group_object_id != null ? 1 : 0
+  for_each            = toset(local.dashboard_read_group_object_ids)
   app_role_id         = azuread_application_app_role.dashboard_read.role_id
-  principal_object_id = var.dashboard_read_group_object_id
+  principal_object_id = each.value
   resource_object_id  = azuread_service_principal.easy_auth.object_id
 }

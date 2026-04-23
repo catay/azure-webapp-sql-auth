@@ -50,27 +50,22 @@ output "easy_auth_application_id_uri" {
 
 output "dashboard_read_app_role" {
   description = "User app role required to view the dashboard and read login events."
-  value       = var.dashboard_read_app_role
-}
-
-output "dashboard_read_group_object_id" {
-  description = "Configured external security group object ID assigned to the dashboard-read role, if any."
-  value       = var.dashboard_read_group_object_id
+  value       = local.dashboard_read_app_role
 }
 
 output "dashboard_write_app_role" {
   description = "User app role required to clear dashboard login rows."
-  value       = var.dashboard_write_app_role
-}
-
-output "dashboard_write_group_object_id" {
-  description = "Configured external security group object ID assigned to the dashboard-write role, if any."
-  value       = var.dashboard_write_group_object_id
+  value       = local.dashboard_write_app_role
 }
 
 output "api_read_app_role" {
   description = "Application role required for daemon access to GET /api/logins."
-  value       = var.api_read_app_role
+  value       = local.api_read_app_role
+}
+
+output "app_role_authorizations" {
+  description = "Configured external principal assignments for the fixed dashboard app roles."
+  value       = local.app_role_authorizations
 }
 
 output "daemon_client_id" {

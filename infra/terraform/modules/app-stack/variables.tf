@@ -169,36 +169,17 @@ variable "aad_app_identifier_uri" {
   nullable    = true
 }
 
-variable "api_read_app_role" {
-  description = "Application role value required for daemon access to GET /api/logins."
-  type        = string
-  default     = "api_read"
-}
-
-variable "dashboard_read_app_role" {
-  description = "User app role value required to view the dashboard and read login events."
-  type        = string
-  default     = "dashboard_read"
-}
-
-variable "dashboard_read_group_object_id" {
-  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-read user role."
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "dashboard_write_app_role" {
-  description = "User app role value required to clear dashboard login rows."
-  type        = string
-  default     = "dashboard_write"
-}
-
-variable "dashboard_write_group_object_id" {
-  description = "Optional object ID of an existing Microsoft Entra security group that should be assigned the dashboard-write user role."
-  type        = string
-  default     = null
-  nullable    = true
+variable "app_role_authorizations" {
+  description = "Optional external principal assignments for the fixed app roles."
+  type = object({
+    dashboard_read = optional(object({
+      group_object_ids = optional(list(string), [])
+    }), {})
+    dashboard_write = optional(object({
+      group_object_ids = optional(list(string), [])
+    }), {})
+  })
+  default = {}
 }
 
 variable "create_daemon_client" {
