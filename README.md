@@ -1,62 +1,96 @@
 # Azure App Service + Azure SQL + Easy Auth Sample
 
-This repository contains a small Flask application that relies on Azure App Service Authentication for Microsoft Entra sign-in and uses the web app system-assigned managed identity to connect to Azure SQL Database without a SQL username or password.
+## Introduction
 
-## Files
+This repository deploys a small Flask application to Azure App Service. The app uses App Service Authentication with Microsoft Entra ID for sign-in, stores login events in Azure SQL Database, and connects to the database with the web app's system-assigned managed identity instead of a SQL username and password.
 
-- `app.py`: Flask app, Easy Auth principal parsing, managed-identity SQL connection, schema bootstrap, and dashboard routes.
-- `templates/dashboard.html`: server-rendered dashboard UI.
-- `requirements.txt`: runtime dependencies.
-- `tests/test_app.py`: unit tests for auth, session deduplication, and dashboard behavior.
-- `docs/spec.md`: implementation contract.
+The default Terraform configuration targets free Azure options where available: the App Service plan defaults to `F1`, and the Azure SQL database defaults to the Azure SQL free offer settings. In an eligible subscription and while staying within the free monthly limits, the default sample deployment should not incur cost.
 
-## Local Verification
+Use this repo when you want to:
 
-Create a virtual environment, install dependencies, and run tests:
+- Provision the Azure infrastructure with Terraform
+- Deploy or redeploy the Flask app package
+- Run the daemon/API verification script against a deployed environment
+
+The functional contract for the app and infrastructure lives in [docs/spec.md](docs/spec.md).
+
+## Prerequisites
+
+### Local tools
+
+Install these tools locally before you deploy:
+
+- `bash`
+- `python3.12` with `venv`
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+- [Terraform 1.6+](https://developer.hashicorp.com/terraform/install)
+- `sqlcmd` from go-sqlcmd or another build that supports `--authentication-method ActiveDirectoryDefault`
+- `zip` for app package deployment
+- `curl` and `jq` for the daemon API test script
+
+The Terraform deployment uses `sqlcmd` during `terraform apply` to create the Azure SQL contained database user for the web app managed identity. There is no separate manual post-provision SQL step in the normal flow anymore.
+
+### Azure and Microsoft Entra permissions
+
+The identity that runs `terraform apply` needs both Azure resource permissions and Microsoft Entra application-management permissions:
+
+- Azure subscription or resource-group scope:
+  - `Contributor` plus `User Access Administrator`, or
+  - `Owner`
+- Azure Key Vault data plane:
+  - `Key Vault Secrets Officer`
+- Microsoft Entra ID:
+  - `Application Administrator`, or
+  - `Cloud Application Administrator`
+
+Notes:
+
+- Terraform creates Azure resources and also creates Key Vault role assignments, so plain `Contributor` is not enough on its own.
+- Terraform writes generated client secrets into Azure Key Vault, so the deployment identity also needs `Key Vault Secrets Officer` on the target vault for data-plane secret management.
+- Terraform creates app registrations, service principals, app roles, client secrets, and app role assignments in Microsoft Entra ID.
+- By default, the identity running Terraform is also set as the Azure SQL Microsoft Entra administrator. If Terraform cannot resolve that identity automatically, set `sql_aad_admin_name` and `sql_aad_admin_object_id` in your local `*.auto.tfvars` file.
+- If you plan to assign dashboard access to existing Entra groups, you need those groups' object IDs for `app_role_authorizations`.
+
+## Terraform Deployment
+
+This repo includes environment wrappers under [infra/terraform/environments](infra/terraform/environments). The checked-in `terraform.tfvars` files contain safe shared defaults such as the base app name and environment name. Put local-only overrides in an ignored `*.auto.tfvars` file.
+
+### Set up an environment from scratch
+
+If you want a brand-new environment wrapper, copy an existing one and then adjust its checked-in `terraform.tfvars`:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
+cp -R infra/terraform/environments/dev infra/terraform/environments/myenv
 ```
 
-## Terraform Deploy
-
-If you only want the Azure resource deployment and platform configuration, use the modular Terraform layout under `infra/terraform/`.
-
-The current entry point is `infra/terraform/environments/dev`, which calls the reusable `infra/terraform/modules/app-stack` module.
-
-That Terraform path provisions:
-
-- Resource group
-- Linux App Service plan
-- Linux web app with system-assigned managed identity
-- Azure SQL logical server and serverless database
-- SQL firewall rule allowing Azure services
-- Azure Key Vault for generated Microsoft Entra client secrets
-- Microsoft Entra app registration for Easy Auth
-- Optional daemon client app registration
-- App Service Authentication configuration
-- Required app settings
-
-It intentionally does not deploy the application package, and it still requires the same post-provision SQL grants for the web app managed identity.
-
-The generated Easy Auth and daemon client secrets are stored in Azure Key Vault. The Easy Auth app setting `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` is configured as an App Service Key Vault reference rather than a raw secret value.
-The Terraform deployment configures the vault in Azure RBAC mode, grants the web app managed identity the `Key Vault Secrets User` role for secret reads, and grants the identity running `terraform apply` the `Key Vault Secrets Officer` role so Terraform can write the generated secrets.
-Terraform defines the fixed `dashboard_read`, `dashboard_write`, and `api_read` app roles from the repository spec. Optional external group assignments for the dashboard roles are configured through the consolidated `app_role_authorizations` object in the environment wrapper inputs.
-
-Initialize and apply from the dev environment wrapper:
-
-```bash
-terraform -chdir=infra/terraform/environments/dev init
-terraform -chdir=infra/terraform/environments/dev apply
-```
-
-Keep generic environment values such as `name` and `environment` in `infra/terraform/environments/dev/terraform.tfvars`. Put environment-specific values such as object IDs, firewall IPs, and similar potentially confidential overrides in `infra/terraform/environments/dev/dev.auto.tfvars`. The `dev.auto.tfvars` file is intentionally local-only and should not be committed.
-
-Example `dev.auto.tfvars` role-assignment override:
+Then update `infra/terraform/environments/myenv/terraform.tfvars`:
 
 ```hcl
+name        = "app01"
+environment = "myenv"
+```
+
+If you only need the existing `dev` or `tst` wrappers, you can skip this copy step.
+
+### Create the local auto tfvars file
+
+Choose the wrapper you want to deploy, then create a local file named `<environment>.auto.tfvars` in that directory. For example:
+
+- `infra/terraform/environments/dev/dev.auto.tfvars`
+- `infra/terraform/environments/tst/tst.auto.tfvars`
+
+Example `infra/terraform/environments/dev/dev.auto.tfvars`:
+
+```hcl
+# Add the public IPv4 address of the machine running terraform apply so the
+# sqlcmd helper can create the managed-identity database user.
+sql_firewall_allowed_ipv4_addresses = ["203.0.113.10"]
+
+# Optional if Terraform cannot resolve the current identity automatically.
+# sql_aad_admin_name      = "Ada Lovelace"
+# sql_aad_admin_object_id = "00000000-0000-0000-0000-000000000000"
+
+# Optional dashboard role assignments for existing Entra groups.
 app_role_authorizations = {
   dashboard_read = {
     group_object_ids = ["00000000-0000-0000-0000-000000000001"]
@@ -65,51 +99,110 @@ app_role_authorizations = {
     group_object_ids = ["00000000-0000-0000-0000-000000000002"]
   }
 }
+
+# Optional tags.
+tags = {
+  environment = "dev"
+}
 ```
 
-During `terraform apply`, the environment wrapper writes a ready-to-use env file for [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh) and [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh) at `infra/terraform/environments/dev/dev.env`.
+The repo ignores `*.auto.tfvars`, so keep environment-specific values there instead of committing them.
 
-## App-Only Deploy
+### Deploy with Terraform
 
-If the infrastructure already exists and you only want to push a new Flask app package, use [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh).
+1. Sign in to Azure CLI and select the target subscription.
 
-Pass the generated env file either as the first argument or through `ENV_FILE`. The script requires:
+```bash
+az login
+az account set --subscription "<subscription-id-or-name>"
+```
 
-- `RG`
-- `WEBAPP_NAME`
+2. Change into the environment wrapper or use Terraform's `-chdir` flag.
 
-By default it uses your current Azure CLI login session. Set `AZURE_CONFIG_DIR` only if you need to point at a non-default Azure CLI profile.
+```bash
+terraform -chdir=infra/terraform/environments/dev init
+terraform -chdir=infra/terraform/environments/dev apply
+```
 
-Example:
+What Terraform does:
+
+- Provisions the resource group, App Service plan, Linux web app, Azure SQL server and database, Key Vault, and Microsoft Entra app registrations
+- Configures Easy Auth on the web app
+- Creates the web app managed identity database user automatically through `sqlcmd`
+- Writes a generated environment file at `infra/terraform/environments/<environment>/<environment>.env`
+
+By default, the deployment uses the free-oriented settings from this repository:
+
+- App Service plan SKU `F1`
+- Azure SQL Database free-offer configuration
+
+That generated `.env` file is used by:
+
+- [scripts/deploy_app_only.sh](scripts/deploy_app_only.sh)
+- [scripts/test_daemon_api.sh](scripts/test_daemon_api.sh)
+
+After `terraform apply`, keep the generated `.env` file for later app deployments and API testing.
+
+## App Deployment
+
+Use the app deployment flow when the Azure resources already exist and you only want to push a new version of the Flask app.
+
+### Set up the Python environment
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+### Deploy the app package
+
+The deployment script uses the `.env` file generated by Terraform and deploys a ZIP package that contains `app.py`, `requirements.txt`, and `templates/`.
 
 ```bash
 ./scripts/deploy_app_only.sh ./infra/terraform/environments/dev/dev.env
 ```
 
-## Required Post-Provision SQL Step
+You can also pass the file through `ENV_FILE`:
 
-The Terraform deployment intentionally stops short of creating the contained database user automatically, because that step must run while authenticated to Azure SQL as the configured Microsoft Entra admin.
-
-Run the following against the target database:
-
-```sql
-CREATE USER [<webapp-name>] FROM EXTERNAL PROVIDER;
-ALTER ROLE db_datareader ADD MEMBER [<webapp-name>];
-ALTER ROLE db_datawriter ADD MEMBER [<webapp-name>];
-ALTER ROLE db_ddladmin ADD MEMBER [<webapp-name>];
+```bash
+ENV_FILE=./infra/terraform/environments/dev/dev.env ./scripts/deploy_app_only.sh
 ```
 
-Replace `<webapp-name>` with the actual App Service name, which is also the expected managed identity display name in the sample deployment path.
+Requirements for this step:
 
-## Daemon API Testing
+- Azure CLI must already be logged in
+- The target web app must already exist
+- The generated environment file must contain `RG` and `WEBAPP_NAME`
 
-Pass the generated `infra/terraform/environments/dev/dev.env` file as the first argument, or set `ENV_FILE` if you want to point the script at a different environment file:
+Optional variables:
+
+- `PACKAGE_PATH` to override the ZIP output path
+- `SKIP_BROWSE=true` to skip opening the site after deployment
+- `AZURE_CONFIG_DIR` if you want the script to use a non-default Azure CLI profile
+
+## Testing
+
+### Run the unit tests locally
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+### Run the daemon API test script
+
+The daemon test script uses the generated environment file from Terraform to request a client-credentials token and call `GET /api/logins`.
 
 ```bash
 ./scripts/test_daemon_api.sh ./infra/terraform/environments/dev/dev.env
 ```
 
-For `scripts/test_daemon_api.sh`, set:
+You can also use:
+
+```bash
+ENV_FILE=./infra/terraform/environments/dev/dev.env ./scripts/test_daemon_api.sh
+```
+
+The script expects the generated `.env` file to provide:
 
 - `TENANT_ID`
 - `CLIENT_ID`
@@ -117,30 +210,16 @@ For `scripts/test_daemon_api.sh`, set:
 - `TOKEN_URL`
 - `API_URL`
 
-Then choose one secret source:
+For the daemon secret, use one of these options:
 
 - Preferred: `KEY_VAULT_NAME` and `DAEMON_CLIENT_SECRET_NAME`
 - Fallback: `CLIENT_SECRET`
 
-When Key Vault variables are provided, the script reads the daemon secret from Key Vault with the current Azure CLI login.
-The script now waits for the app to report healthy before calling `GET /api/logins`; override `HEALTH_URL` if it cannot be derived from `API_URL`, and tune `HEALTH_MAX_ATTEMPTS`, `HEALTH_RETRY_SECONDS`, `HEALTH_CONNECT_TIMEOUT_SECONDS`, or `HEALTH_TIMEOUT_SECONDS` if your App Service or database regularly needs a longer warm-up window.
+The script:
 
-## Validation
+- Waits for `healthz` to return HTTP 200 before calling the API
+- Uses Azure CLI to read the daemon secret from Key Vault when Key Vault variables are present
+- Prints the decoded access token payload
+- Calls the deployed `GET /api/logins` endpoint and prints the JSON response
 
-After the SQL grants are applied:
-
-1. Open `https://<webapp-name>.azurewebsites.net/dashboard` while signed out.
-2. Confirm Microsoft sign-in is required.
-3. Confirm the dashboard loads after sign-in.
-4. Confirm the signed-in user summary is displayed.
-5. Confirm one login row is inserted for the new browser session.
-6. Refresh `/dashboard` and confirm no second row is inserted in the same browser session.
-7. Confirm `https://<webapp-name>.azurewebsites.net/healthz` returns `200 OK` without requiring sign-in.
-
-## Notes
-
-- The application expects `SQL_SERVER_NAME`, `SQL_DATABASE_NAME`, and `FLASK_SECRET_KEY` as app settings.
-- The application also supports optional `DASHBOARD_READ_APP_ROLE`, `API_READ_APP_ROLE`, and `DASHBOARD_WRITE_APP_ROLE` overrides when role values differ from the defaults.
-- The application does not use `SQL_USERNAME` or `SQL_PASSWORD`.
-- App Service must have ODBC Driver 18 for SQL Server available at runtime for `pyodbc` connections.
-- Outside Azure App Service, Easy Auth headers are not trusted by default.
+If your app needs longer to warm up, override the health-check settings such as `HEALTH_MAX_ATTEMPTS` or `HEALTH_RETRY_SECONDS` before running the script.
