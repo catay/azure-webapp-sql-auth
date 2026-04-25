@@ -40,8 +40,38 @@ locals {
   )
   sql_aad_admin_object_id       = coalesce(var.sql_aad_admin_object_id, data.azurerm_client_config.current.object_id)
   managed_identity_db_user_name = coalesce(var.webapp_managed_identity_db_user_name, azurerm_linux_web_app.main.name)
-  app_service_always_on_skus    = ["FREE", "F1", "D1"]
-  app_service_always_on         = !contains(local.app_service_always_on_skus, upper(var.app_plan_sku))
+  webapp_sql_database_principals = var.create_webapp_managed_identity_db_user ? {
+    webapp_managed_identity = {
+      name          = local.managed_identity_db_user_name
+      object_id     = azurerm_linux_web_app.main.identity[0].principal_id
+      use_object_id = var.webapp_managed_identity_db_user_use_object_id
+      roles         = ["db_datareader", "db_datawriter", "db_ddladmin"]
+    }
+  } : {}
+  sql_database_access_defaults = {
+    app = {
+      name       = azapi_resource.sql_database.name
+      principals = local.webapp_sql_database_principals
+    }
+  }
+  sql_database_access = {
+    for database_key, database_access in merge(local.sql_database_access_defaults, var.sql_database_access) :
+    database_key => {
+      name = coalesce(
+        try(database_access.name, null),
+        try(local.sql_database_access_defaults[database_key].name, null),
+      )
+      principals = merge(
+        try(local.sql_database_access_defaults[database_key].principals, {}),
+        try(var.sql_database_access[database_key].principals, {}),
+      )
+    }
+  }
+  sql_database_access_principal_keys = flatten([
+    for database_access in values(local.sql_database_access) : keys(database_access.principals)
+  ])
+  app_service_always_on_skus = ["FREE", "F1", "D1"]
+  app_service_always_on      = !contains(local.app_service_always_on_skus, upper(var.app_plan_sku))
 
   default_tags = {
     managed_by  = "terraform"

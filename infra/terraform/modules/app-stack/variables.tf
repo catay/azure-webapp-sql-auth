@@ -34,6 +34,50 @@ variable "create_webapp_managed_identity_db_user" {
   default     = true
 }
 
+variable "sql_database_access" {
+  description = "Additional Microsoft Entra contained database users and database role grants, grouped by database. The app database entry is keyed as app."
+  type = map(object({
+    name = optional(string)
+    principals = optional(map(object({
+      name          = string
+      object_id     = optional(string)
+      use_object_id = optional(bool, true)
+      roles         = list(string)
+    })), {})
+  }))
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for database_key, database_access in var.sql_database_access :
+      database_key == "app" || try(database_access.name, null) != null
+    ])
+    error_message = "sql_database_access entries other than app must set name to the target database name."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for database_access in var.sql_database_access : [
+        for principal in values(database_access.principals) :
+        length(trimspace(principal.name)) > 0 && length(principal.roles) > 0 && alltrue([
+          for role in principal.roles : length(trimspace(role)) > 0
+        ])
+      ]
+    ]))
+    error_message = "Each sql_database_access principal must have a non-empty name and at least one non-empty role."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for database_access in var.sql_database_access : [
+        for principal in values(database_access.principals) :
+        !principal.use_object_id || try(length(trimspace(principal.object_id)) > 0, false)
+      ]
+    ]))
+    error_message = "Each sql_database_access principal with use_object_id=true must set object_id."
+  }
+}
+
 variable "sql_firewall_allowed_ipv4_addresses" {
   description = "Additional public IPv4 addresses allowed through the Azure SQL firewall. Use this for the machine running terraform apply when local-exec database setup is enabled."
   type        = list(string)

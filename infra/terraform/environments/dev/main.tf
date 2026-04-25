@@ -51,6 +51,7 @@ module "app_stack" {
   sql_aad_admin_name                            = var.sql_aad_admin_name
   sql_aad_admin_object_id                       = var.sql_aad_admin_object_id
   create_webapp_managed_identity_db_user        = var.create_webapp_managed_identity_db_user
+  sql_database_access                           = var.sql_database_access
   sql_firewall_allowed_ipv4_addresses           = var.sql_firewall_allowed_ipv4_addresses
   webapp_managed_identity_db_user_name          = var.webapp_managed_identity_db_user_name
   webapp_managed_identity_db_user_use_object_id = var.webapp_managed_identity_db_user_use_object_id
@@ -135,6 +136,20 @@ variable "create_webapp_managed_identity_db_user" {
   description = "Whether Terraform should run a local helper to create the web app managed identity database user after provisioning."
   type        = bool
   default     = true
+}
+
+variable "sql_database_access" {
+  description = "Additional Microsoft Entra contained database users and database role grants, grouped by database. The app database entry is keyed as app."
+  type = map(object({
+    name = optional(string)
+    principals = optional(map(object({
+      name          = string
+      object_id     = optional(string)
+      use_object_id = optional(bool, true)
+      roles         = list(string)
+    })), {})
+  }))
+  default = {}
 }
 
 variable "sql_firewall_allowed_ipv4_addresses" {

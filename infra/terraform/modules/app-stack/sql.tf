@@ -67,25 +67,19 @@ resource "azurerm_mssql_firewall_rule" "terraform_clients" {
   end_ip_address   = each.value
 }
 
-resource "terraform_data" "webapp_managed_identity_db_user" {
-  count = var.create_webapp_managed_identity_db_user ? 1 : 0
+resource "terraform_data" "sql_database_access" {
+  count = length(local.sql_database_access_principal_keys) > 0 ? 1 : 0
 
   triggers_replace = {
-    sql_server_fqdn = azurerm_mssql_server.main.fully_qualified_domain_name
-    sql_database    = azapi_resource.sql_database.name
-    principal_id    = azurerm_linux_web_app.main.identity[0].principal_id
-    db_user_name    = local.managed_identity_db_user_name
-    use_object_id   = tostring(var.webapp_managed_identity_db_user_use_object_id)
+    sql_server_fqdn          = azurerm_mssql_server.main.fully_qualified_domain_name
+    sql_database_access_json = jsonencode(local.sql_database_access)
   }
 
   provisioner "local-exec" {
-    command = "bash ${abspath("${path.module}/../../../../scripts/create_webapp_managed_identity_db_user.sh")}"
+    command = "python3 ${abspath("${path.module}/scripts/configure_sql_database_access.py")}"
     environment = {
-      SQL_SERVER_FQDN            = azurerm_mssql_server.main.fully_qualified_domain_name
-      SQL_DATABASE_NAME          = azapi_resource.sql_database.name
-      DB_USER_NAME               = local.managed_identity_db_user_name
-      MANAGED_IDENTITY_OBJECT_ID = azurerm_linux_web_app.main.identity[0].principal_id
-      USE_OBJECT_ID              = tostring(var.webapp_managed_identity_db_user_use_object_id)
+      SQL_SERVER_FQDN          = azurerm_mssql_server.main.fully_qualified_domain_name
+      SQL_DATABASE_ACCESS_JSON = jsonencode(local.sql_database_access)
     }
   }
 

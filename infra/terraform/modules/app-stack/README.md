@@ -33,7 +33,40 @@ The module derives these resource names automatically:
 
 ## Defaults
 
-The module uses the repository defaults from `docs/reorg.md`, including the current sample group assignments, App Service plan SKU, Python version, SQL configuration, and the optional managed-identity database-user helper.
+The module uses the repository defaults from `docs/spec.md`, including the current sample group assignments, App Service plan SKU, Python version, SQL configuration, and the optional SQL database access helper.
+
+## SQL Database Access
+
+The module configures database-level Microsoft Entra contained users only. Server-level logins and server role grants are intentionally out of scope.
+
+The web app system-assigned managed identity is merged into the effective `sql_database_access` map by default and receives the roles required by the sample app. Additional users, groups, managed identities, or service principals can be configured through tfvars:
+
+```hcl
+sql_database_access = {
+  app = {
+    principals = {
+      developers = {
+        name      = "sg-app01-dev-sql-readers"
+        object_id = "00000000-0000-0000-0000-000000000000"
+        roles     = ["db_datareader"]
+      }
+    }
+  }
+
+  reporting = {
+    name = "reporting-db"
+    principals = {
+      analysts = {
+        name      = "sg-app01-reporting-readers"
+        object_id = "11111111-1111-1111-1111-111111111111"
+        roles     = ["db_datareader"]
+      }
+    }
+  }
+}
+```
+
+The `app` database entry defaults to the module-created database name. Additional database entries must set `name` explicitly.
 
 ## Outputs
 

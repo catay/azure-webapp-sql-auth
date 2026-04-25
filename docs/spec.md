@@ -588,6 +588,8 @@ The repository should remain small, but it is expected to include the Flask app,
 │       │       ├── locals.tf
 │       │       ├── outputs.tf
 │       │       ├── random.tf
+│       │       ├── scripts/
+│       │       │   └── configure_sql_database_access.py
 │       │       ├── sql.tf
 │       │       ├── variables.tf
 │       │       ├── versions.tf
@@ -599,7 +601,6 @@ The repository should remain small, but it is expected to include the Flask app,
 │               └── dev.auto.tfvars
 ├── requirements.txt
 ├── scripts/
-│   ├── create_webapp_managed_identity_db_user.sh
 │   ├── deploy_app_only.sh
 │   └── test_daemon_api.sh
 ├── templates/
@@ -638,8 +639,10 @@ The `app-stack` module must preserve the current infrastructure behavior while i
   - `sql_db_backup_redundancy = "Local"`
   - `sql_db_free_limit_exhaustion_behavior = "AutoPause"`
   - `create_webapp_managed_identity_db_user = true`
+- The module must expose `sql_database_access` for additional Microsoft Entra contained database users and database role grants. The web app managed identity must be merged into the effective access map by default when `create_webapp_managed_identity_db_user = true`.
 - The following inputs must remain optional without baked-in defaults and, when used, must be defined explicitly in the environment `<environment>.auto.tfvars` file:
   - `app_role_authorizations`
+  - `sql_database_access`
   - `sql_firewall_allowed_ipv4_addresses`
 
 Terraform resource naming must follow a consistent stack-oriented convention:
@@ -1084,11 +1087,40 @@ az webapp deploy \
   --type zip
 ```
 
-### 16.14 Create the database user for the web app managed identity
+### 16.14 Configure database users and roles
 
 This step must be executed while authenticated as the Microsoft Entra SQL admin.
 
-The SQL to run against the target database is:
+The implementation configures database-level Microsoft Entra contained users only. It does not create server-level Microsoft Entra logins or assign server roles.
+
+The web app managed identity must be included by default. Additional Microsoft Entra users, groups, managed identities, or service principals may be configured through `sql_database_access` in tfvars:
+
+```hcl
+sql_database_access = {
+  app = {
+    principals = {
+      developers = {
+        name      = "sg-app01-dev-sql-readers"
+        object_id = "00000000-0000-0000-0000-000000000000"
+        roles     = ["db_datareader"]
+      }
+    }
+  }
+
+  reporting = {
+    name = "reporting-db"
+    principals = {
+      analysts = {
+        name      = "sg-app01-reporting-readers"
+        object_id = "11111111-1111-1111-1111-111111111111"
+        roles     = ["db_datareader"]
+      }
+    }
+  }
+}
+```
+
+For each configured database and principal, the SQL helper must run idempotent database-scoped SQL equivalent to:
 
 ```sql
 CREATE USER [<webapp-name>] FROM EXTERNAL PROVIDER WITH OBJECT_ID = '<webapp-managed-identity-object-id>';
@@ -1101,7 +1133,7 @@ Implementation note:
 
 - The contained user name can still follow the web app name, but using `WITH OBJECT_ID = '<principal-id>'` removes ambiguity when Microsoft Entra display names are duplicated or drift from the resource name.
 - If `WITH OBJECT_ID` is not used, the contained user name should match the App Service managed identity service principal display name as resolved in Microsoft Entra.
-- In this repository, `infra/terraform` may optionally automate this step with a `local-exec` helper when `create_webapp_managed_identity_db_user = true`. That helper still requires the `terraform apply` host to have `sqlcmd`, network access to the SQL endpoint, and a Microsoft Entra-authenticated SQL admin context.
+- In this repository, `infra/terraform` may optionally automate this step with a `local-exec` helper when there is at least one effective `sql_database_access` principal. That helper still requires the `terraform apply` host to have `python3`, `sqlcmd`, network access to the SQL endpoint, and a Microsoft Entra-authenticated SQL admin context.
 - When that Terraform helper is enabled, the SQL server firewall must also allow the public egress IP of the `terraform apply` host. `AllowAzureServices` only covers Azure-originated traffic and does not cover a workstation or external runner. The Terraform configuration exposes `sql_firewall_allowed_ipv4_addresses` for this purpose.
 - The preferred Terraform entry point is `infra/terraform/environments/dev`, which calls the reusable `infra/terraform/modules/app-stack` module.
 - The environment wrapper should generate `infra/terraform/environments/dev/dev.env` during `terraform apply` so operational scripts can consume the deployment values without a separate redirection step.

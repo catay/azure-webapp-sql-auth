@@ -28,7 +28,7 @@ Install these tools locally before you deploy:
 - `zip` for app package deployment
 - `curl` and `jq` for the daemon API test script
 
-The Terraform deployment uses `sqlcmd` during `terraform apply` to create the Azure SQL contained database user for the web app managed identity. There is no separate manual post-provision SQL step in the normal flow anymore.
+The Terraform deployment uses `sqlcmd` during `terraform apply` to create Azure SQL contained database users for Microsoft Entra principals and grant database roles. The web app managed identity is included by default. There is no separate manual post-provision SQL step in the normal flow anymore.
 
 ### Azure and Microsoft Entra permissions
 
@@ -83,7 +83,7 @@ Example `infra/terraform/environments/dev/dev.auto.tfvars`:
 
 ```hcl
 # Add the public IPv4 address of the machine running terraform apply so the
-# sqlcmd helper can create the managed-identity database user.
+# sqlcmd helper can create contained database users and role grants.
 sql_firewall_allowed_ipv4_addresses = ["203.0.113.10"]
 
 # Optional if Terraform cannot resolve the current identity automatically.
@@ -97,6 +97,32 @@ app_role_authorizations = {
   }
   dashboard_write = {
     group_object_ids = ["00000000-0000-0000-0000-000000000002"]
+  }
+}
+
+# Optional Azure SQL database access for additional Microsoft Entra users,
+# groups, managed identities, or service principals. The app database is keyed
+# as "app"; additional databases must set name explicitly.
+sql_database_access = {
+  app = {
+    principals = {
+      developers = {
+        name      = "sg-app01-dev-sql-readers"
+        object_id = "00000000-0000-0000-0000-000000000003"
+        roles     = ["db_datareader"]
+      }
+    }
+  }
+
+  reporting = {
+    name = "reporting-db"
+    principals = {
+      analysts = {
+        name      = "sg-app01-reporting-readers"
+        object_id = "00000000-0000-0000-0000-000000000004"
+        roles     = ["db_datareader"]
+      }
+    }
   }
 }
 
@@ -128,7 +154,7 @@ What Terraform does:
 
 - Provisions the resource group, App Service plan, Linux web app, Azure SQL server and database, Key Vault, and Microsoft Entra app registrations
 - Configures Easy Auth on the web app
-- Creates the web app managed identity database user automatically through `sqlcmd`
+- Creates configured SQL contained database users and database role grants automatically through `sqlcmd`
 - Writes a generated environment file at `infra/terraform/environments/<environment>/<environment>.env`
 
 By default, the deployment uses the free-oriented settings from this repository:
