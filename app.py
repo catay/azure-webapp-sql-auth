@@ -129,7 +129,10 @@ def create_app(test_config=None):
             "dashboard.html",
             page_title="Application Login Dashboard",
             current_user=user,
-            login_rows=rows,
+            user_login_rows=[row for row in rows if row["principal_type"] == "user"],
+            application_login_rows=[
+                row for row in rows if row["principal_type"] == "application"
+            ],
             api_logins_url=url_for("api_logins"),
             clear_logins_url=url_for("clear_logins"),
             clear_logins_allowed=_can_clear_logins(user),

@@ -257,16 +257,21 @@ Additional rule for daemon access:
 The dashboard must show:
 
 - The current signed-in user summary.
-- A table of recent user and application login events.
+- Separate tables for recent user and application login events.
 - A button that clears all stored login rows from the database when the signed-in user has the `dashboard_write` app role.
 
-The table must include:
+The user login table must include:
 
 - Login timestamp in UTC.
-- Principal type.
 - Display name.
 - Email or preferred username.
-- Client application ID when the row represents an application principal.
+- Microsoft Entra object ID.
+
+The application login table must include:
+
+- Login timestamp in UTC.
+- Application display name.
+- Client application ID.
 - Microsoft Entra object ID.
 
 ### FR-4: Login events API
@@ -288,7 +293,7 @@ Implementation rules:
   - `aad_object_id`
   - `identity_provider`
 - Rows must be ordered from newest to oldest.
-- The endpoint should return the same most recent 50 rows shown on the dashboard.
+- The endpoint should return the same most recent 50 audit rows used by the dashboard tables.
 - The endpoint must insert an audit row when the caller is an authorized application principal.
 - The endpoint should not insert an additional audit row when the caller is a user principal that is only reading the API.
 - The endpoint must allow:
@@ -540,7 +545,7 @@ Required UI elements:
 
 - Page title.
 - Current user summary card.
-- Table of recent user and application logins.
+- Separate tables for recent user and application logins.
 - Empty state when no rows exist.
 - Sign-out link pointing to `/.auth/logout`.
 
@@ -548,7 +553,7 @@ Required display rules:
 
 - Show timestamps in UTC and label them as UTC.
 - Sort rows by newest first.
-- Limit the table to the most recent 50 rows.
+- Limit the dashboard audit data to the most recent 50 rows before splitting it by principal type.
 
 ## 13. Error Handling Requirements
 

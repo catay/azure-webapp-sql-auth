@@ -136,6 +136,11 @@
         margin-bottom: 1.5rem;
       }
 
+      .table-stack {
+        display: grid;
+        gap: 1.5rem;
+      }
+
       .user-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -275,52 +280,86 @@
         </div>
       </section>
 
-      <section class="table-card" aria-labelledby="recent-logins-heading">
-        <div class="table-header">
-          <h2 id="recent-logins-heading">Recent User and Application Events</h2>
-          <div class="table-actions">
-            <span>Showing up to 50 rows, newest first, timestamps in UTC.</span>
-            {% if clear_logins_allowed %}
-            <form class="danger-form" method="post" action="{{ clear_logins_url }}">
-              <button class="danger-button" type="submit">
-                Clear All Logins
-              </button>
-            </form>
-            {% endif %}
+      <div class="table-stack">
+        <section class="table-card" aria-labelledby="recent-user-logins-heading">
+          <div class="table-header">
+            <h2 id="recent-user-logins-heading">Recent User Logins</h2>
+            <div class="table-actions">
+              <span>Newest first, timestamps in UTC.</span>
+              {% if clear_logins_allowed %}
+              <form class="danger-form" method="post" action="{{ clear_logins_url }}">
+                <button class="danger-button" type="submit">
+                  Clear All Logins
+                </button>
+              </form>
+              {% endif %}
+            </div>
           </div>
-        </div>
 
-        {% if login_rows %}
-        <table>
-          <thead>
-            <tr>
-              <th>Login Time (UTC)</th>
-              <th>Principal Type</th>
-              <th>Display Name</th>
-              <th>Email / Username</th>
-              <th>Client App ID</th>
-              <th>Microsoft Entra Object ID</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in login_rows %}
-            <tr>
-              <td>{{ row.login_at }}</td>
-              <td>{{ row.principal_type }}</td>
-              <td>{{ row.display_name }}</td>
-              <td>{{ row.email or "Not provided" }}</td>
-              <td>{{ row.client_app_id or "Not provided" }}</td>
-              <td>{{ row.aad_object_id }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="empty-state">
-          No user or application events have been recorded yet.
-        </div>
-        {% endif %}
-      </section>
+          {% if user_login_rows %}
+          <table>
+            <thead>
+              <tr>
+                <th>Login Time (UTC)</th>
+                <th>Display Name</th>
+                <th>Email / Username</th>
+                <th>Microsoft Entra Object ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in user_login_rows %}
+              <tr>
+                <td>{{ row.login_at }}</td>
+                <td>{{ row.display_name }}</td>
+                <td>{{ row.email or "Not provided" }}</td>
+                <td>{{ row.aad_object_id }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="empty-state">
+            No user logins have been recorded yet.
+          </div>
+          {% endif %}
+        </section>
+
+        <section class="table-card" aria-labelledby="recent-application-logins-heading">
+          <div class="table-header">
+            <h2 id="recent-application-logins-heading">Recent Application Logins</h2>
+            <div class="table-actions">
+              <span>Newest first, timestamps in UTC.</span>
+            </div>
+          </div>
+
+          {% if application_login_rows %}
+          <table>
+            <thead>
+              <tr>
+                <th>Login Time (UTC)</th>
+                <th>Application Name</th>
+                <th>Client App ID</th>
+                <th>Microsoft Entra Object ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in application_login_rows %}
+              <tr>
+                <td>{{ row.login_at }}</td>
+                <td>{{ row.display_name }}</td>
+                <td>{{ row.client_app_id }}</td>
+                <td>{{ row.aad_object_id }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="empty-state">
+            No application logins have been recorded yet.
+          </div>
+          {% endif %}
+        </section>
+      </div>
     </main>
   </body>
 </html>
