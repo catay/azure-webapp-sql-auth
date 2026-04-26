@@ -127,7 +127,7 @@ def create_app(test_config=None):
 
         return render_template(
             "dashboard.html",
-            page_title="Azure SQL Login Dashboard",
+            page_title="Application Login Dashboard",
             current_user=user,
             login_rows=rows,
             api_logins_url=url_for("api_logins"),
